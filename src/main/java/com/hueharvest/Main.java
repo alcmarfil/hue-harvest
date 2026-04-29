@@ -22,12 +22,14 @@ public class Main {
             sidePanel.setBorder(BorderFactory.createMatteBorder(0, 2, 0, 0, Color.LIGHT_GRAY));
 
             // timer and status
-            JPanel statusPanel = new JPanel(new GridLayout(2, 1));
+            JPanel statusPanel = new JPanel(new GridLayout(3, 1));
             statusPanel.setBorder(BorderFactory.createTitledBorder("Match Status"));
-            JLabel timerLabel = new JLabel("Time: 90s", SwingConstants.CENTER);
+            JLabel timerLabel = new JLabel("Time: " + GameState.INITIAL_TIME + "s", SwingConstants.CENTER);
+            JLabel goalLabel = new JLabel("Goal: 0 / " + GameState.GOAL_TILES, SwingConstants.CENTER);
             JLabel burstLabel = new JLabel("Burst: Ready", SwingConstants.CENTER);
             timerLabel.setFont(new Font("Arial", Font.BOLD, 22));
             statusPanel.add(timerLabel);
+            statusPanel.add(goalLabel);
             statusPanel.add(burstLabel);
 
             // leaderboard
@@ -87,6 +89,14 @@ public class Main {
                     playerScores[i].setText("Player " + (i + 1) + ": " + count);
                 }
                 
+                int player1Count = gameState.getTileCount(1);
+                goalLabel.setText("Goal: " + player1Count + " / " + GameState.GOAL_TILES);
+                if (player1Count >= GameState.GOAL_TILES) {
+                    goalLabel.setForeground(new Color(34, 139, 34)); // Green when goal reached
+                } else {
+                    goalLabel.setForeground(Color.BLACK);
+                }
+
                 long cd = gamePanel.getCooldownRemaining();
                 if (cd > 0) {
                     burstLabel.setText("Burst: " + cd + "s");
@@ -95,6 +105,8 @@ public class Main {
                     burstLabel.setText("Burst: READY");
                     burstLabel.setForeground(new Color(34, 139, 34));
                 }
+
+                // Check for goal completion (moved to gameTimer for centralized check)
             });
             uiTimer.start();
 
@@ -102,13 +114,17 @@ public class Main {
             Timer gameTimer = new Timer(1000, e -> {
                 gameState.tick();
                 timerLabel.setText("Time: " + gameState.getTimeLeft() + "s");
-                
-                if (gameState.getTimeLeft() <= 0) {
+
+                int player1Count = gameState.getTileCount(1);
+                boolean goalReached = player1Count >= GameState.GOAL_TILES;
+                boolean timeExpired = gameState.getTimeLeft() <= 0;
+
+                if (goalReached || timeExpired) {
                     uiTimer.stop();
                     ((Timer)e.getSource()).stop();
                     
-                    // final scoring & placement
-                    int myScore = gameState.getTileCount(1);
+                    String title = goalReached ? "GOAL REACHED!" : "MATCH EXPIRED!";
+                    int myScore = player1Count;
                     int rank = 1;
                     for (int i = 2; i <= 4; i++) {
                         if (gameState.getTileCount(i) > myScore) {
@@ -124,15 +140,15 @@ public class Main {
                     };
 
                     String message = String.format(
-                        "MATCH EXPIRED!\n\n" +
+                        "%s\n\n" +
                         "Your Score: %d tiles\n" +
                         "Placement: %d%s Place\n\n" +
                         "Would you like to play again?", 
-                        myScore, rank, rankSuffix
+                        title, myScore, rank, rankSuffix
                     );
 
                     int choice = JOptionPane.showOptionDialog(
-                        frame, message, "HuHarvest Result", 
+                        frame, message, "Hue Harvest Result", 
                         JOptionPane.YES_NO_OPTION, JOptionPane.INFORMATION_MESSAGE, 
                         null, new String[]{"Play Again", "Exit"}, "Play Again"
                     );

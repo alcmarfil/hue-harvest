@@ -4,6 +4,8 @@ import java.io.Serializable;
 
 public class GameState implements Serializable {
     public static final int GRID_SIZE = 30;
+    public static final int GOAL_TILES = 30;
+    public static final int INITIAL_TIME = 90;
     
     // 0 = Neutral / Tile not yet taken , 1-4 = Player Colors
     private final int[][] grid;
@@ -11,7 +13,7 @@ public class GameState implements Serializable {
     
     public GameState() {
         this.grid = new int[GRID_SIZE][GRID_SIZE];
-        this.timeLeft = 10;
+        this.timeLeft = INITIAL_TIME;
     }
 
     public int[][] getGrid() {
@@ -49,7 +51,7 @@ public class GameState implements Serializable {
                 grid[y][x] = 0;
             }
         }
-        this.timeLeft = 10; // change kapag final na
+        this.timeLeft = INITIAL_TIME; // change kapag final na
     }
 
     public int getTileCount(int playerId) {
