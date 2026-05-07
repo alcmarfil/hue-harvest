@@ -9,8 +9,18 @@ import java.awt.event.KeyEvent;
 import java.awt.geom.RoundRectangle2D;
 import java.awt.image.BufferedImage;
 
-
 public class GamePanel extends JPanel {
+    private Runnable restartAction;
+    private Runnable winListener;
+
+    public void setRestartAction(Runnable action) {
+        this.restartAction = action;
+    }
+
+    public void setWinListener(Runnable listener) {
+        this.winListener = listener;
+    }
+
     private static final int TILE_SIZE = 40; 
     private static final double PLAYER_VISUAL_SCALE = 1.4; // Player is 40% larger than a tile
     private static final int ARC_SIZE = 12; // Visual Polish: Rounded corner radius
@@ -46,6 +56,20 @@ public class GamePanel extends JPanel {
         addKeyListener(new KeyAdapter() {
             @Override
             public void keyPressed(KeyEvent e) {
+                // check for Exit/Restart keys if the game is over
+                if (isGameOver) {
+                    if (e.getKeyCode() == KeyEvent.VK_ESCAPE) {
+                        System.exit(0); 
+                    }
+                    if (e.getKeyCode() == KeyEvent.VK_R) {
+                        isGameOver = false; 
+                        reset();
+                        if (restartAction != null) restartAction.run();
+                    }
+                    return; 
+                }
+
+                // normal Gameplay Controls
                 if (e.getKeyCode() == KeyEvent.VK_SPACE) {
                     fireInkBurst();
                 } else {
@@ -53,8 +77,7 @@ public class GamePanel extends JPanel {
                 }
             }
         });
-
-        // Initialize starting position
+        // initialize starting position
         claimTile(playerX, playerY);
     }
 
@@ -67,8 +90,18 @@ public class GamePanel extends JPanel {
         int currentOwner = gameState.getTile(x, y);
         if (currentOwner != playerId) {
             gameState.setTile(x, y, playerId);
-            // Visual Polish: Trigger "pop" effect when a tile is first claimed
             popScale[y][x] = 1.3f; 
+            
+            // immediate check if there is a win
+            checkInstantWin(); 
+        }
+    }
+
+    private void checkInstantWin() {
+        if (gameState.getTileCount(playerId) >= GameState.GOAL_TILES) {
+            if (winListener != null) {
+                winListener.run();
+            }
         }
     }
 
@@ -103,13 +136,27 @@ public class GamePanel extends JPanel {
         repaint();
     }
 
+    private boolean isGameOver = false;
+    private int finalRank = 0;
+    private int finalScore = 0;
+
+    private String gameOverSubtitle = "";
+    private String gameOverTitle = "";
+
+    public void setGameOver(boolean won, String subtitle, int finalScore) {
+        this.isGameOver = true;
+        this.gameOverTitle = won ? "VICTORY!" : "MATCH EXPIRED";
+        this.gameOverSubtitle = subtitle;
+        this.finalScore = finalScore;
+        repaint();
+    }
+
     @Override
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
         Graphics2D g2d = (Graphics2D) g;
         
-        // --- Task: The Renderer ---
-        // Implementation: Antialiasing for smooth rounded corners and high-quality rendering
+        // Antialiasing for smooth rounded corners and high-quality rendering
         g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
         // Iterate through grid and draw tiles
@@ -124,8 +171,77 @@ public class GamePanel extends JPanel {
 
         // Process frame-based animations
         updateAnimations();
+        // CUSTOM RESULT MODAL
+        if (isGameOver) {
+            drawResultModal(g2d);
+        }
     }
 
+    private void drawResultModal(Graphics2D g2d) {
+        // Soft Overlay 
+        g2d.setColor(new Color(30, 50, 40, 160)); 
+        g2d.fillRect(0, 0, getWidth(), getHeight());
+
+        // Modal Dimensions
+        int mW = 400, mH = 320;
+        int mx = (getWidth() - mW) / 2;
+        int my = (getHeight() - mH) / 2;
+
+        g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+        // Border 
+        g2d.setColor(new Color(143, 188, 143)); // SeaGreen/Sage
+        g2d.fillRoundRect(mx - 6, my - 6, mW + 12, mH + 12, 40, 40);
+
+        // Main Body 
+        g2d.setColor(new Color(252, 249, 237)); 
+        g2d.fillRoundRect(mx, my, mW, mH, 35, 35);
+
+        // Header Ribbon 
+        boolean isVictory = gameOverTitle.equals("VICTORY!");
+        Color accentColor = isVictory ? new Color(108, 153, 108) : new Color(204, 115, 115);
+        
+        g2d.setColor(accentColor);
+        g2d.fillRoundRect(mx + 60, my + 30, mW - 120, 50, 25, 25);
+
+        // Title 
+        g2d.setFont(new Font("SansSerif", Font.BOLD, 28));
+        g2d.setColor(Color.WHITE);
+        drawCenteredString(g2d, gameOverTitle, mx, my + 65, mW);
+
+        // Subtitle 
+        g2d.setFont(new Font("SansSerif", Font.PLAIN, 18));
+        g2d.setColor(new Color(60, 80, 60));
+        drawCenteredString(g2d, gameOverSubtitle, mx, my + 120, mW);
+
+        // Score Area 
+        g2d.setColor(new Color(235, 230, 210)); 
+        g2d.fillRoundRect(mx + 50, my + 150, mW - 100, 70, 20, 20);
+        
+        // Icon Placeholder 
+        g2d.setColor(new Color(210, 180, 140)); 
+        g2d.fillOval(mx + 70, my + 165, 40, 40);
+
+        g2d.setFont(new Font("SansSerif", Font.BOLD, 24));
+        g2d.setColor(new Color(101, 67, 33)); 
+        g2d.drawString(finalScore + " CROPS", mx + 130, my + 195);
+
+        // 7. Footer Instructions
+        g2d.setFont(new Font("Monospaced", Font.BOLD, 14));
+        g2d.setColor(new Color(120, 140, 120));
+        drawCenteredString(g2d, "Press [R] to Re-sow  •  [ESC] to Quit", mx, my + 270, mW);
+
+        // Decorative "Sprout" (Bottom corner detail)
+        g2d.setColor(new Color(143, 188, 143));
+        g2d.fillOval(mx + mW - 40, my + mH - 40, 20, 20);
+    }
+
+    private void drawCenteredString(Graphics2D g, String text, int x, int y, int width) {
+        FontMetrics metrics = g.getFontMetrics();
+        int tx = x + (width - metrics.stringWidth(text)) / 2;
+        g.drawString(text, tx, y);
+    }
+    
     /**
      * Draws individual tiles with rounded corners and scaling effects.
      */
@@ -244,16 +360,25 @@ public class GamePanel extends JPanel {
     }
 
     public void reset() {
+        this.isGameOver = false; 
         this.playerX = 0;
         this.playerY = 0;
         this.dirX = 0;
         this.dirY = 1;
         this.lastBurstTime = 0;
-        // Reset scale grid
-        for(int r = 0; r < GameState.GRID_SIZE; r++) {
-            for(int c = 0; c < GameState.GRID_SIZE; c++) popScale[r][c] = 1.0f;
+
+        // clear actual game board
+        for (int y = 0; y < GameState.GRID_SIZE; y++) {
+            for (int x = 0; x < GameState.GRID_SIZE; x++) {
+                gameState.setTile(x, y, 0); 
+            }
+        }
+        // reset the pop scales
+        for (int r = 0; r < GameState.GRID_SIZE; r++) {
+            for (int c = 0; c < GameState.GRID_SIZE; c++) popScale[r][c] = 1.0f;
         }
         gameState.setTile(0, 0, playerId);
+        
         repaint();
     }
 }
