@@ -9,12 +9,14 @@ import java.awt.event.KeyEvent;
 import java.awt.geom.RoundRectangle2D;
 import java.awt.image.BufferedImage;
 
+
 public class GamePanel extends JPanel {
     private static final int TILE_SIZE = 40; 
-    private static final double PLAYER_VISUAL_SCALE = 1.4;
+    private static final double PLAYER_VISUAL_SCALE = 1.4; // Player is 40% larger than a tile
     private static final int ARC_SIZE = 12; // Visual Polish: Rounded corner radius
     private final GameState gameState;
     
+    // Player State
     private int playerX = 0; 
     private int playerY = 0; 
     private int dirX = 0; 
@@ -24,12 +26,14 @@ public class GamePanel extends JPanel {
     // Visual Polish: Array to track the "Pop" scale of each tile (1.0 = normal)
     private float[][] popScale;
 
+    // Burst Ability Logic
     private long lastBurstTime = 0;
     private static final long BURST_COOLDOWN = 5000;
 
     public GamePanel(GameState gameState) {
         this.gameState = gameState;
-        // Initialize the pop effects grid
+        
+        // Initialize the pop effects grid to default scale
         this.popScale = new float[GameState.GRID_SIZE][GameState.GRID_SIZE];
         for(int r = 0; r < GameState.GRID_SIZE; r++) {
             for(int c = 0; c < GameState.GRID_SIZE; c++) popScale[r][c] = 1.0f;
@@ -50,17 +54,21 @@ public class GamePanel extends JPanel {
             }
         });
 
+        // Initialize starting position
         claimTile(playerX, playerY);
     }
 
-    // Task: Visual Polish - Trigger pop when tile state changes
+    /**
+     * Logic for claiming a tile and triggering the Visual Polish effect.
+     */
     private void claimTile(int x, int y) {
         if (x < 0 || x >= GameState.GRID_SIZE || y < 0 || y >= GameState.GRID_SIZE) return;
         
         int currentOwner = gameState.getTile(x, y);
         if (currentOwner != playerId) {
             gameState.setTile(x, y, playerId);
-            popScale[y][x] = 1.3f; // Start the "pop" at 130% size
+            // Visual Polish: Trigger "pop" effect when a tile is first claimed
+            popScale[y][x] = 1.3f; 
         }
     }
 
@@ -100,52 +108,67 @@ public class GamePanel extends JPanel {
         super.paintComponent(g);
         Graphics2D g2d = (Graphics2D) g;
         
-        // Task: Renderer - Antialiasing for smooth rounded corners
+        // --- Task: The Renderer ---
+        // Implementation: Antialiasing for smooth rounded corners and high-quality rendering
         g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
-        // Draw grid and tiles
+        // Iterate through grid and draw tiles
         for (int y = 0; y < GameState.GRID_SIZE; y++) {
             for (int x = 0; x < GameState.GRID_SIZE; x++) {
                 drawTile(g2d, x, y);
             }
         }
 
-        // Draw player
+        // Draw character sprites
         drawPlayer(g2d);
 
-        // Update pop animations for next frame
+        // Process frame-based animations
         updateAnimations();
     }
 
+    /**
+     * Draws individual tiles with rounded corners and scaling effects.
+     */
     private void drawTile(Graphics2D g2d, int x, int y) {
         int tileType = gameState.getTile(x, y);
         float scale = popScale[y][x];
         
-        // Calculate dynamic size/position for the pop effect
+        // Calculate size/position
         int size = (int) (TILE_SIZE * scale);
         int offset = (size - TILE_SIZE) / 2;
         int drawX = x * TILE_SIZE - offset;
         int drawY = y * TILE_SIZE - offset;
 
-        BufferedImage tileImg = AssetManager.getImage("tile" + tileType + ".png");
-        
-        // Task: Renderer - Create rounded corner shape
+        // Create the rounded shape for clipping
         Shape roundRect = new RoundRectangle2D.Float(drawX, drawY, size, size, ARC_SIZE, ARC_SIZE);
+        Shape oldClip = g2d.getClip();
+        g2d.setClip(roundRect);
 
-        if (tileImg != null) {
-            Shape oldClip = g2d.getClip();
-            g2d.setClip(roundRect); // Clips image into the rounded shape
-            g2d.drawImage(tileImg, drawX, drawY, size, size, null);
-            g2d.setClip(oldClip);
+        // Draw the Grass (tile0) first as the base layer
+        BufferedImage baseImg = AssetManager.getImage("tile0.png");
+        if (baseImg != null) {
+            g2d.drawImage(baseImg, drawX, drawY, size, size, null);
         } else {
-            // Fallback for tile1-4 if Member A hasn't sent them yet
-            g2d.setColor(getColorForPlayer(tileType));
+            g2d.setColor(Color.WHITE); // Backup if grass is missing
             g2d.fill(roundRect);
-            
-            // Subtle Grid lines
-            g2d.setColor(new Color(240, 240, 240, 150));
-            g2d.draw(roundRect);
         }
+
+        // Draw the Player's Tile ON TOP if it's not neutral
+        if (tileType != 0) {
+            BufferedImage overlayImg = AssetManager.getImage("tile" + tileType + ".png");
+            if (overlayImg != null) {
+                g2d.drawImage(overlayImg, drawX, drawY, size, size, null);
+            } else {
+                // Fallback: Semi-transparent color to still see grass underneath
+                Color pColor = getColorForPlayer(tileType);
+                g2d.setColor(new Color(pColor.getRed(), pColor.getGreen(), pColor.getBlue(), 150));
+                g2d.fill(roundRect);
+            }
+        }
+
+        g2d.setClip(oldClip);
+        g2d.setColor(new Color(0, 0, 0, 30)); 
+        g2d.draw(roundRect);
     }
 
     private void drawPlayer(Graphics2D g2d) {
@@ -157,24 +180,29 @@ public class GamePanel extends JPanel {
         if (playerImg != null) {
             g2d.drawImage(playerImg, playerX * TILE_SIZE - offset, playerY * TILE_SIZE - offset, drawSize, drawSize, null);
         } else {
+            // Character Renderer fallback
             g2d.setColor(Color.BLACK);
             g2d.fillOval(playerX * TILE_SIZE - offset, playerY * TILE_SIZE - offset, drawSize, drawSize);
         }
     }
 
+    /**
+     * Task: Visual Polish - Manages the transition of the pop effect back to normal size.
+     */
     private void updateAnimations() {
         boolean animating = false;
         for (int y = 0; y < GameState.GRID_SIZE; y++) {
             for (int x = 0; x < GameState.GRID_SIZE; x++) {
                 if (popScale[y][x] > 1.0f) {
-                    popScale[y][x] -= 0.02f; // Adjust this to change animation speed
+                    popScale[y][x] -= 0.02f; // Animation speed for the shrink-back
                     animating = true;
                 } else {
                     popScale[y][x] = 1.0f;
                 }
             }
         }
-        // If anything is still "popping", keep the loop going
+        
+        // Refresh the panel if animations are still active
         if (animating) {
             Timer t = new Timer(16, e -> repaint());
             t.setRepeats(false);
@@ -182,7 +210,6 @@ public class GamePanel extends JPanel {
         }
     }
 
-    // Helper methods (Direction, Color, Cooldown, Reset) remain the same...
     private String getDirectionSuffix() {
         if (dirX == 1) return "right";
         if (dirX == -1) return "left";
@@ -193,11 +220,11 @@ public class GamePanel extends JPanel {
 
     private Color getColorForPlayer(int id) {
         return switch (id) {
-            case 1 -> new Color(255, 182, 193);
+            case 1 -> new Color(255, 182, 193); // Player 1 Color
             case 2 -> new Color(152, 251, 152);
             case 3 -> new Color(230, 230, 250);
             case 4 -> new Color(135, 206, 235);
-            default -> Color.WHITE;
+            default -> Color.WHITE; // Neutral Tile Color
         };
     }
 
@@ -212,6 +239,10 @@ public class GamePanel extends JPanel {
         this.dirX = 0;
         this.dirY = 1;
         this.lastBurstTime = 0;
+        // Reset scale grid
+        for(int r = 0; r < GameState.GRID_SIZE; r++) {
+            for(int c = 0; c < GameState.GRID_SIZE; c++) popScale[r][c] = 1.0f;
+        }
         gameState.setTile(0, 0, playerId);
         repaint();
     }
