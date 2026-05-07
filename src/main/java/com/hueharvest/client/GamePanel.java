@@ -9,7 +9,7 @@ import java.awt.event.KeyEvent;
 import java.awt.image.BufferedImage;
 
 public class GamePanel extends JPanel {
-    private static final int TILE_SIZE = 28; 
+    private static final int TILE_SIZE = 40; 
     private static final double PLAYER_VISUAL_SCALE = 1.4; // player is 40% larger than a tile
     private final GameState gameState;
     

@@ -10,6 +10,8 @@ public class Main {
     public static void main(String[] args) {
         SwingUtilities.invokeLater(() -> {
             JFrame frame = new JFrame("Hue Harvest - Milestone 1");
+            frame.setLocationRelativeTo(null);
+            frame.setResizable(false);
             frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
             
             GameState gameState = new GameState();

@@ -3,9 +3,9 @@ package com.hueharvest.shared;
 import java.io.Serializable;
 
 public class GameState implements Serializable {
-    public static final int GRID_SIZE = 30;
-    public static final int GOAL_TILES = 30;
-    public static final int INITIAL_TIME = 90;
+    public static final int GRID_SIZE = 20;
+    public static final int GOAL_TILES = 200;
+    public static final int INITIAL_TIME = 50;
     
     // 0 = Neutral / Tile not yet taken , 1-4 = Player Colors
     private final int[][] grid;
