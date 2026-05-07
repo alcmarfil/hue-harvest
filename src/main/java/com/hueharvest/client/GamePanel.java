@@ -134,20 +134,20 @@ public class GamePanel extends JPanel {
         float scale = popScale[y][x];
         
         // Calculate size/position
-        int size = (int) (TILE_SIZE * scale);
-        int offset = (size - TILE_SIZE) / 2;
-        int drawX = x * TILE_SIZE - offset;
-        int drawY = y * TILE_SIZE - offset;
+        int baseSize = (int) (TILE_SIZE * scale);
+        int baseOffset = (baseSize - TILE_SIZE) / 2;
+        int drawX = x * TILE_SIZE - baseOffset;
+        int drawY = y * TILE_SIZE - baseOffset;
 
         // Create the rounded shape for clipping
-        Shape roundRect = new RoundRectangle2D.Float(drawX, drawY, size, size, ARC_SIZE, ARC_SIZE);
+        Shape roundRect = new RoundRectangle2D.Float(drawX, drawY, baseSize, baseSize, ARC_SIZE, ARC_SIZE);
         Shape oldClip = g2d.getClip();
         g2d.setClip(roundRect);
 
         // Draw the Grass (tile0) first as the base layer
         BufferedImage baseImg = AssetManager.getImage("tile0.png");
         if (baseImg != null) {
-            g2d.drawImage(baseImg, drawX, drawY, size, size, null);
+            g2d.drawImage(baseImg, drawX, drawY, baseSize, baseSize, null);
         } else {
             g2d.setColor(Color.WHITE); // Backup if grass is missing
             g2d.fill(roundRect);
@@ -155,14 +155,24 @@ public class GamePanel extends JPanel {
 
         // Draw the Player's Tile ON TOP if it's not neutral
         if (tileType != 0) {
-            BufferedImage overlayImg = AssetManager.getImage("tile" + tileType + ".png");
-            if (overlayImg != null) {
-                g2d.drawImage(overlayImg, drawX, drawY, size, size, null);
+            // Task: Renderer - Relative scaling for the crop overlay
+            double cropScaleFactor = 0.8; // 80% of tile size
+            int cropSize = (int) (baseSize * cropScaleFactor);
+            
+            // Centering the crop on top of the base tile
+            int cropOffset = (baseSize - cropSize) / 2;
+            int cropX = drawX + cropOffset;
+            int cropY = drawY + cropOffset;
+
+            BufferedImage cropImg = AssetManager.getImage("tile" + tileType + ".png");
+            
+            if (cropImg != null) {
+                // Draw the actual crop asset (Tomato, Corn, etc.)
+                g2d.drawImage(cropImg, cropX, cropY, cropSize, cropSize, null);
             } else {
-                // Fallback: Semi-transparent color to still see grass underneath
-                Color pColor = getColorForPlayer(tileType);
-                g2d.setColor(new Color(pColor.getRed(), pColor.getGreen(), pColor.getBlue(), 150));
-                g2d.fill(roundRect);
+                // Fallback: Use the player's theme color if the specific crop image is missing
+                g2d.setColor(getColorForPlayer(tileType));
+                g2d.fillOval(cropX, cropY, cropSize, cropSize);
             }
         }
 
