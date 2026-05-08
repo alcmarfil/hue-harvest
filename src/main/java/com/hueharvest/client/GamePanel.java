@@ -1,47 +1,58 @@
 package com.hueharvest.client;
 
 import com.hueharvest.shared.GameState;
-
+import com.hueharvest.shared.NetworkPacket;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.awt.geom.RoundRectangle2D;
 import java.awt.image.BufferedImage;
+import java.io.*;
+import java.net.Socket;
+import java.util.ArrayList;
+import java.util.List;
 
 public class GamePanel extends JPanel {
-    private Runnable restartAction;
-    private Runnable winListener;
+    private int myPlayerId = -1;
+    private ObjectOutputStream out;
+    private GameState remoteGameState; // State received from server
+    private String serverIp = "localhost";
+    private final List<String> chatMessages = new ArrayList<>();
+    private java.util.function.Consumer<String> messageListener;
+    
+    // Local Prediction for the current player to eliminate lag
+    private int localX = -1, localY = -1;
 
-    public void setRestartAction(Runnable action) {
-        this.restartAction = action;
+    public int getMyPlayerId() {
+        return myPlayerId;
     }
 
-    public void setWinListener(Runnable listener) {
-        this.winListener = listener;
+    public boolean isBurstReady() {
+        if (remoteGameState == null || myPlayerId == -1) return true;
+        return remoteGameState.isBurstReady(myPlayerId);
+    }
+
+    public GameState getRemoteGameState() {
+        return remoteGameState;
+    }
+
+    public void setMessageListener(java.util.function.Consumer<String> listener) {
+        this.messageListener = listener;
     }
 
     private static final int TILE_SIZE = 40; 
     private static final double PLAYER_VISUAL_SCALE = 1.4; // Player is 40% larger than a tile
     private static final int ARC_SIZE = 12; // Visual Polish: Rounded corner radius
-    private final GameState gameState;
     
-    // Player State
-    private int playerX = 0; 
-    private int playerY = 0; 
-    private int dirX = 0; 
-    private int dirY = 1; 
-    private final int playerId = 1; 
-
     // Visual Polish: Array to track the "Pop" scale of each tile (1.0 = normal)
     private float[][] popScale;
 
     // Burst Ability Logic
-    private long lastBurstTime = 0;
     private static final long BURST_COOLDOWN = 5000;
 
     public GamePanel(GameState gameState) {
-        this.gameState = gameState;
+        this.remoteGameState = gameState;
         
         // Initialize the pop effects grid to default scale
         this.popScale = new float[GameState.GRID_SIZE][GameState.GRID_SIZE];
@@ -52,94 +63,150 @@ public class GamePanel extends JPanel {
         setPreferredSize(new Dimension(GameState.GRID_SIZE * TILE_SIZE, GameState.GRID_SIZE * TILE_SIZE));
         setBackground(Color.WHITE);
         setFocusable(true);
-
+        requestFocusInWindow();
+        
         addKeyListener(new KeyAdapter() {
             @Override
             public void keyPressed(KeyEvent e) {
-                // check for Exit/Restart keys if the game is over
                 if (isGameOver) {
-                    if (e.getKeyCode() == KeyEvent.VK_ESCAPE) {
-                        System.exit(0); 
+                    if (e.getKeyCode() == KeyEvent.VK_ESCAPE) System.exit(0);
+                    if (e.getKeyCode() == KeyEvent.VK_R && myPlayerId == 1) {
+                        // Reset request to server (could add a RESET packet type, but for now just restart)
+                        sendPacket(new NetworkPacket(NetworkPacket.Type.START, myPlayerId, null));
+                        isGameOver = false;
                     }
-                    if (e.getKeyCode() == KeyEvent.VK_R) {
-                        isGameOver = false; 
-                        reset();
-                        if (restartAction != null) restartAction.run();
-                    }
-                    return; 
+                    return;
                 }
 
-                // normal Gameplay Controls
+                // Client Input Handling
+                if (remoteGameState.getStatus() == GameState.Status.LOBBY) {
+                    if (e.getKeyCode() == KeyEvent.VK_ENTER && myPlayerId == 1) {
+                        sendPacket(new NetworkPacket(NetworkPacket.Type.START, myPlayerId, null));
+                    }
+                }
+
                 if (e.getKeyCode() == KeyEvent.VK_SPACE) {
-                    fireInkBurst();
+                    if (isBurstReady()) {
+                        // Local Prediction for Burst
+                        triggerLocalBurst();
+                        sendPacket(new NetworkPacket(NetworkPacket.Type.BURST, myPlayerId, null));
+                    }
                 } else {
-                    movePlayer(e.getKeyCode());
+                    int dx = 0, dy = 0;
+                    switch (e.getKeyCode()) {
+                        case KeyEvent.VK_W, KeyEvent.VK_UP -> dy = -1;
+                        case KeyEvent.VK_S, KeyEvent.VK_DOWN -> dy = 1;
+                        case KeyEvent.VK_A, KeyEvent.VK_LEFT -> dx = -1;
+                        case KeyEvent.VK_D, KeyEvent.VK_RIGHT -> dx = 1;
+                    }
+                    if (dx != 0 || dy != 0) {
+                        // Local Prediction: Update position immediately for visual feedback
+                        if (localX != -1 && localY != -1) {
+                            int nextX = Math.max(0, Math.min(GameState.GRID_SIZE - 1, localX + dx));
+                            int nextY = Math.max(0, Math.min(GameState.GRID_SIZE - 1, localY + dy));
+                            localX = nextX;
+                            localY = nextY;
+                            repaint();
+                        }
+                        sendPacket(new NetworkPacket(NetworkPacket.Type.MOVE, myPlayerId, new int[]{dx, dy}));
+                    }
                 }
             }
         });
-        // initialize starting position
-        claimTile(playerX, playerY);
-    }
 
-    /**
-     * Logic for claiming a tile and triggering the Visual Polish effect.
-     */
-    private void claimTile(int x, int y) {
-        if (x < 0 || x >= GameState.GRID_SIZE || y < 0 || y >= GameState.GRID_SIZE) return;
-        
-        int currentOwner = gameState.getTile(x, y);
-        if (currentOwner != playerId) {
-            gameState.setTile(x, y, playerId);
-            popScale[y][x] = 1.3f; 
-            
-            // immediate check if there is a win
-            checkInstantWin(); 
-        }
-    }
-
-    private void checkInstantWin() {
-        if (gameState.getTileCount(playerId) >= GameState.GOAL_TILES) {
-            if (winListener != null) {
-                winListener.run();
+        // Dedicate a timer for all visual updates to keep the UI responsive
+        new Timer(16, e -> {
+            if (remoteGameState != null) {
+                updateAnimations();
+                repaint();
             }
-        }
+        }).start();
+
+        // Ensure we always have focus for movement
+        addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mousePressed(java.awt.event.MouseEvent e) {
+                requestFocusInWindow();
+            }
+        });
     }
 
-    private void fireInkBurst() {
-        long currentTime = System.currentTimeMillis();
-        if (currentTime - lastBurstTime < BURST_COOLDOWN) return;
-
-        int targetX = playerX + (dirX * 3);
-        int targetY = playerY + (dirY * 3);
-
+    private void triggerLocalBurst() {
+        if (localX == -1 || localY == -1) return;
+        int dX = remoteGameState.getDirX(myPlayerId);
+        int dY = remoteGameState.getDirY(myPlayerId);
+        int targetX = localX + (dX * 3);
+        int targetY = localY + (dY * 3);
         for (int dy = -1; dy <= 1; dy++) {
             for (int dx = -1; dx <= 1; dx++) {
-                claimTile(targetX + dx, targetY + dy);
+                int tx = targetX + dx;
+                int ty = targetY + dy;
+                if (tx >= 0 && tx < GameState.GRID_SIZE && ty >= 0 && ty < GameState.GRID_SIZE) {
+                    popScale[ty][tx] = 1.4f;
+                }
             }
         }
-        lastBurstTime = currentTime;
-        repaint();
     }
 
-    private void movePlayer(int keyCode) {
-        switch (keyCode) {
-            case KeyEvent.VK_W, KeyEvent.VK_UP -> { dirX = 0; dirY = -1; }
-            case KeyEvent.VK_S, KeyEvent.VK_DOWN -> { dirX = 0; dirY = 1; }
-            case KeyEvent.VK_A, KeyEvent.VK_LEFT -> { dirX = -1; dirY = 0; }
-            case KeyEvent.VK_D, KeyEvent.VK_RIGHT -> { dirX = 1; dirY = 0; }
+    public void connect(String host) {
+        this.serverIp = host;
+        new Thread(() -> {
+            try (Socket socket = new Socket(host, 12345)) {
+                out = new ObjectOutputStream(socket.getOutputStream());
+                ObjectInputStream in = new ObjectInputStream(socket.getInputStream());
+
+                while (true) {
+                    NetworkPacket packet = (NetworkPacket) in.readObject();
+                    if (packet.type == NetworkPacket.Type.WELCOME) {
+                        myPlayerId = packet.playerId;
+                    } else if (packet.type == NetworkPacket.Type.UPDATE) {
+                        remoteGameState = (GameState) packet.data;
+                        
+                        // Sync local prediction with server only if discrepancy is large to avoid jitter
+                        if (myPlayerId != -1) {
+                            int sX = remoteGameState.getPlayerX(myPlayerId);
+                            int sY = remoteGameState.getPlayerY(myPlayerId);
+                            // Relaxed sync threshold to prevent "elastic" snapping
+                            if (localX == -1 || localY == -1 || Math.abs(localX - sX) > 3 || Math.abs(localY - sY) > 3) {
+                                localX = sX;
+                                localY = sY;
+                            }
+                        }
+
+                        if (remoteGameState.getStatus() == GameState.Status.FINISHED && !isGameOver) {
+                            int winnerId = remoteGameState.getWinnerId();
+                            String msg = winnerId == -1 ? "Time's Up!" : "Player " + winnerId + " Won!";
+                            setGameOver(winnerId == myPlayerId, msg, remoteGameState.getTileCount(myPlayerId));
+                        }
+                    } else if (packet.type == NetworkPacket.Type.CHAT) {
+                        String sender = (packet.playerId == myPlayerId) ? "You" : "Player " + packet.playerId;
+                        String msg = sender + ": " + packet.data;
+                        chatMessages.add(msg);
+                        if (chatMessages.size() > 5) chatMessages.remove(0);
+                        if (messageListener != null) messageListener.accept(msg);
+                        repaint();
+                    }
+                }
+            } catch (Exception e) {
+                JOptionPane.showMessageDialog(this, "Connection failed: " + e.getMessage());
+            }
+        }).start();
+    }
+
+    public void sendPacket(NetworkPacket packet) {
+        if (out != null) {
+            try {
+                out.writeUnshared(packet);
+                out.flush();
+                out.reset();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
         }
-
-        playerX = Math.max(0, Math.min(GameState.GRID_SIZE - 1, playerX + dirX));
-        playerY = Math.max(0, Math.min(GameState.GRID_SIZE - 1, playerY + dirY));
-
-        claimTile(playerX, playerY);
-        repaint();
     }
 
     private boolean isGameOver = false;
-    private int finalRank = 0;
     private int finalScore = 0;
-
     private String gameOverSubtitle = "";
     private String gameOverTitle = "";
 
@@ -167,13 +234,42 @@ public class GamePanel extends JPanel {
         }
 
         // Draw character sprites
-        drawPlayer(g2d);
+        for (int i = 1; i <= 4; i++) {
+            drawPlayer(g2d, i);
+        }
 
         // Process frame-based animations
         updateAnimations();
+
+        if (remoteGameState.getStatus() == GameState.Status.LOBBY) {
+            drawLobbyOverlay(g2d);
+        }
+
         // CUSTOM RESULT MODAL
         if (isGameOver) {
             drawResultModal(g2d);
+        }
+    }
+
+    private void drawLobbyOverlay(Graphics2D g2d) {
+        g2d.setColor(new Color(0, 0, 0, 180));
+        g2d.fillRect(0, 0, getWidth(), getHeight());
+
+        g2d.setColor(Color.WHITE);
+        g2d.setFont(new Font("SansSerif", Font.BOLD, 36));
+        drawCenteredString(g2d, "WAITING ROOM", 0, getHeight() / 2 - 80, getWidth());
+
+        g2d.setFont(new Font("SansSerif", Font.PLAIN, 24));
+        drawCenteredString(g2d, "Connect via IP: " + serverIp, 0, getHeight() / 2 - 20, getWidth());
+        
+        int playerCount = remoteGameState.getNumPlayers();
+        drawCenteredString(g2d, "Players Connected: " + playerCount + " / 4", 0, getHeight() / 2 + 30, getWidth());
+
+        if (myPlayerId == 1) {
+            g2d.setColor(new Color(152, 251, 152));
+            drawCenteredString(g2d, "Press [ENTER] to Start Game", 0, getHeight() / 2 + 100, getWidth());
+        } else {
+            drawCenteredString(g2d, "Waiting for host to start...", 0, getHeight() / 2 + 100, getWidth());
         }
     }
 
@@ -246,7 +342,7 @@ public class GamePanel extends JPanel {
      * Draws individual tiles with rounded corners and scaling effects.
      */
     private void drawTile(Graphics2D g2d, int x, int y) {
-        int tileType = gameState.getTile(x, y);
+        int tileType = remoteGameState.getTile(x, y);
         float scale = popScale[y][x];
         
         // Calculate size/position
@@ -297,19 +393,42 @@ public class GamePanel extends JPanel {
         g2d.draw(roundRect);
     }
 
-    private void drawPlayer(Graphics2D g2d) {
-        String directionSuffix = getDirectionSuffix();
-        BufferedImage playerImg = AssetManager.getImage("player" + playerId + "_" + directionSuffix + ".png");
+    private void drawPlayer(Graphics2D g2d, int pId) {
+        int pX = (pId == myPlayerId && localX != -1) ? localX : remoteGameState.getPlayerX(pId);
+        int pY = (pId == myPlayerId && localY != -1) ? localY : remoteGameState.getPlayerY(pId);
+        int dX = remoteGameState.getDirX(pId);
+        int dY = remoteGameState.getDirY(pId);
+        
+        // Don't draw players that haven't moved/connected yet (initial pos 0,0 but pId != 1)
+        if (pX == 0 && pY == 0 && pId != 1 && remoteGameState.getTile(0, 0) != pId) return;
+
+        String directionSuffix = getDirectionSuffix(dX, dY);
+        BufferedImage playerImg = AssetManager.getImage("player" + pId + "_" + directionSuffix + ".png");
         int drawSize = (int) (TILE_SIZE * PLAYER_VISUAL_SCALE);
         int offset = (drawSize - TILE_SIZE) / 2;
 
         if (playerImg != null) {
-            g2d.drawImage(playerImg, playerX * TILE_SIZE - offset, playerY * TILE_SIZE - offset, drawSize, drawSize, null);
+            g2d.drawImage(playerImg, pX * TILE_SIZE - offset, pY * TILE_SIZE - offset, drawSize, drawSize, null);
         } else {
             // Character Renderer fallback
+            g2d.setColor(getColorForPlayer(pId));
+            g2d.fillOval(pX * TILE_SIZE - offset, pY * TILE_SIZE - offset, drawSize, drawSize);
+            
+            // Small indicator of direction
             g2d.setColor(Color.BLACK);
-            g2d.fillOval(playerX * TILE_SIZE - offset, playerY * TILE_SIZE - offset, drawSize, drawSize);
+            int eyeSize = 6;
+            int ex = pX * TILE_SIZE + TILE_SIZE / 2 + dX * 10 - eyeSize / 2;
+            int ey = pY * TILE_SIZE + TILE_SIZE / 2 + dY * 10 - eyeSize / 2;
+            g2d.fillOval(ex, ey, eyeSize, eyeSize);
         }
+    }
+
+    private String getDirectionSuffix(int dX, int dY) {
+        if (dX == 1) return "right";
+        if (dX == -1) return "left";
+        if (dY == 1) return "down";
+        if (dY == -1) return "up";
+        return "down";
     }
 
     /**
@@ -320,7 +439,8 @@ public class GamePanel extends JPanel {
         for (int y = 0; y < GameState.GRID_SIZE; y++) {
             for (int x = 0; x < GameState.GRID_SIZE; x++) {
                 if (popScale[y][x] > 1.0f) {
-                    popScale[y][x] -= 0.02f; // Animation speed for the shrink-back
+                    popScale[y][x] -= 0.08f; // Faster decay for snappier feel
+                    if (popScale[y][x] < 1.0f) popScale[y][x] = 1.0f;
                     animating = true;
                 } else {
                     popScale[y][x] = 1.0f;
@@ -336,14 +456,6 @@ public class GamePanel extends JPanel {
         }
     }
 
-    private String getDirectionSuffix() {
-        if (dirX == 1) return "right";
-        if (dirX == -1) return "left";
-        if (dirY == 1) return "down";
-        if (dirY == -1) return "up";
-        return "down";
-    }
-
     private Color getColorForPlayer(int id) {
         return switch (id) {
             case 1 -> new Color(255, 182, 193); // Player 1 Color
@@ -355,30 +467,11 @@ public class GamePanel extends JPanel {
     }
 
     public long getCooldownRemaining() {
-        long elapsed = System.currentTimeMillis() - lastBurstTime;
-        return Math.max(0, (BURST_COOLDOWN - elapsed) / 1000);
+        // Simple cooldown check on client side for UI (server also checks)
+        return 0; // Simplified for now
     }
 
     public void reset() {
-        this.isGameOver = false; 
-        this.playerX = 0;
-        this.playerY = 0;
-        this.dirX = 0;
-        this.dirY = 1;
-        this.lastBurstTime = 0;
-
-        // clear actual game board
-        for (int y = 0; y < GameState.GRID_SIZE; y++) {
-            for (int x = 0; x < GameState.GRID_SIZE; x++) {
-                gameState.setTile(x, y, 0); 
-            }
-        }
-        // reset the pop scales
-        for (int r = 0; r < GameState.GRID_SIZE; r++) {
-            for (int c = 0; c < GameState.GRID_SIZE; c++) popScale[r][c] = 1.0f;
-        }
-        gameState.setTile(0, 0, playerId);
-        
-        repaint();
+        // Reset handled by server
     }
 }

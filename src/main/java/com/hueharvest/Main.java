@@ -13,14 +13,41 @@ public class Main {
             frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
             frame.setResizable(false);
             
+            String[] options = {"Host Game", "Join Game"};
+            int choice = JOptionPane.showOptionDialog(frame, "Welcome to Hue Harvest Online!", 
+                "Game Mode", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
+
+            if (choice == -1) System.exit(0);
+
+            if (choice == 0) { // Host
+                new Thread(() -> {
+                    try {
+                        com.hueharvest.server.GameServer.main(new String[]{});
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                }).start();
+                // Short delay to let server start
+                try { Thread.sleep(500); } catch (InterruptedException e) {}
+            }
+
+            String serverIp = "localhost";
+            if (choice == 1) { // Join
+                serverIp = JOptionPane.showInputDialog(frame, "Enter Server IP / Room Code:", "localhost");
+                if (serverIp == null || serverIp.isEmpty()) System.exit(0);
+            }
+
             GameState gameState = new GameState();
             GamePanel gamePanel = new GamePanel(gameState);
+            gamePanel.connect(serverIp);
             
-            // --- SIDEBAR COMPONENTS ---
+            // To be initialized after chat components
+            java.util.function.Consumer<String> chatSync = null;
             JPanel sidePanel = new JPanel();
             sidePanel.setPreferredSize(new Dimension(250, 0));
             sidePanel.setLayout(new BorderLayout());
             sidePanel.setBorder(BorderFactory.createMatteBorder(0, 2, 0, 0, Color.LIGHT_GRAY));
+            sidePanel.setFocusable(false);
 
             // Match Status (Timer, Goal, Burst)
             JPanel statusPanel = new JPanel(new GridLayout(3, 1));
@@ -51,18 +78,29 @@ public class Main {
             JTextArea chatArea = new JTextArea();
             chatArea.setEditable(false);
             chatArea.setLineWrap(true);
+            chatArea.setFocusable(false); // Prevent focus theft
             JScrollPane chatScroll = new JScrollPane(chatArea);
             
             JTextField chatInput = new JTextField();
             chatInput.addActionListener(e -> {
-                if (!chatInput.getText().trim().isEmpty()) {
-                    chatArea.append("You: " + chatInput.getText() + "\n");
+                String text = chatInput.getText().trim();
+                if (!text.isEmpty()) {
+                    gamePanel.sendPacket(new com.hueharvest.shared.NetworkPacket(
+                        com.hueharvest.shared.NetworkPacket.Type.CHAT, -1, text)); // ID -1, server will fix
                     chatInput.setText("");
                     gamePanel.requestFocusInWindow();
                 }
             });
             chatPanel.add(chatScroll, BorderLayout.CENTER);
             chatPanel.add(chatInput, BorderLayout.SOUTH);
+
+            // Connect networking to UI
+            gamePanel.setMessageListener(msg -> {
+                SwingUtilities.invokeLater(() -> {
+                    chatArea.append(msg + "\n");
+                    chatArea.setCaretPosition(chatArea.getDocument().getLength());
+                });
+            });
 
             // Assemble Sidebar
             JPanel topSide = new JPanel(new BorderLayout());
@@ -83,78 +121,32 @@ public class Main {
 
             final Timer[] timers = new Timer[2]; 
 
-            // --- GAME LOGIC TIMER ---
-            timers[1] = new Timer(1000, e -> {
-                gameState.tick();
-                timerLabel.setText("Time: " + gameState.getTimeLeft() + "s");
+            // Logic timer removed as server handles it
 
-                int player1Count = gameState.getTileCount(1);
-                boolean goalReached = player1Count >= GameState.GOAL_TILES;
-                boolean timeExpired = gameState.getTimeLeft() <= 0;
+            // UI REFRESH TIMER (Online mode - Very slow refresh for labels to save CPU for typing)
+            timers[0] = new Timer(200, e -> {
+                GameState remoteState = gamePanel.getRemoteGameState();
+                if (remoteState == null) return;
 
-                if (goalReached || timeExpired) {
-                    timers[0].stop();
-                    timers[1].stop();
-
-                    if (goalReached) {
-                        // SCENARIO A: VICTORY
-                        int rank = 1; 
-                        for (int i = 2; i <= 4; i++) {
-                            if (gameState.getTileCount(i) > player1Count) rank++;
-                        }
-                        gamePanel.setGameOver(true, "Rank: " + rank, player1Count);
-                    } else {
-                        // SCENARIO B: TIME EXPIRED (GOAL NOT MET)
-                        gamePanel.setGameOver(false, "You did not meet the goal of 200 crops.", player1Count);
-                    }
-                }
-            });
-
-            // --- UI REFRESH TIMER ---
-            timers[0] = new Timer(50, e -> {
+                // Leaderboard tracking
                 for (int i = 0; i < 4; i++) {
-                    playerScores[i].setText("Player " + (i + 1) + ": " + gameState.getTileCount(i + 1));
+                    playerScores[i].setText("Player " + (i + 1) + ": " + remoteState.getTileCount(i + 1));
                 }
-                int p1 = gameState.getTileCount(1);
-                goalLabel.setText("Goal: " + p1 + " / " + GameState.GOAL_TILES);
-                goalLabel.setForeground(p1 >= GameState.GOAL_TILES ? new Color(34, 139, 34) : Color.BLACK);
+
+                // Goal tracking: Use current player's score for the main progress
+                int myScore = remoteState.getTileCount(gamePanel.getMyPlayerId());
+                goalLabel.setText("Goal: " + myScore + " / " + GameState.GOAL_TILES);
+                goalLabel.setForeground(myScore >= GameState.GOAL_TILES ? new Color(34, 139, 34) : Color.BLACK);
                 
-                long cd = gamePanel.getCooldownRemaining();
-                burstLabel.setText("Burst: " + (cd > 0 ? cd + "s" : "READY"));
-                burstLabel.setForeground(cd > 0 ? Color.RED : new Color(34, 139, 34));
-            });
-
-            // pass restart logic to game panel
-            gamePanel.setRestartAction(() -> {
-                gameState.reset(); // 
-                timers[0].start();
-                timers[1].start();
-                timerLabel.setText("Time: " + GameState.INITIAL_TIME + "s");
-            });
-
-            // To stop the game instantly
-            gamePanel.setWinListener(() -> {
-                int p1Count = gameState.getTileCount(1);
+                // Show burst status
+                boolean ready = gamePanel.isBurstReady();
+                burstLabel.setText("Burst: " + (ready ? "READY" : "CHARGING"));
+                burstLabel.setForeground(ready ? new Color(34, 139, 34) : Color.RED);
                 
-                // force the leaderboard and goal label to show the actual final count
-                playerScores[0].setText("Player 1: " + p1Count);
-                goalLabel.setText("Goal: " + p1Count + " / " + GameState.GOAL_TILES);
-                goalLabel.setForeground(new Color(34, 139, 34));
-
-                // stop the timers
-                timers[0].stop(); // UI Timer
-                timers[1].stop(); // Logic Timer
-                
-                // calculate rank and show modal
-                int rank = 1; 
-                for (int i = 2; i <= 4; i++) {
-                    if (gameState.getTileCount(i) > p1Count) rank++;
-                }
-                gamePanel.setGameOver(true, "Rank: " + rank, p1Count);
+                timerLabel.setText("Time: " + remoteState.getTimeLeft() + "s");
             });
-
             timers[0].start();
-            timers[1].start();
+
         });
     }
 }
