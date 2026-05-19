@@ -46,15 +46,45 @@ public class GameServer {
             while (true) {
                 Socket socket = serverSocket.accept();
                 if (clients.size() < 4) {
-                    ClientHandler handler = new ClientHandler(socket, nextPlayerId++);
-                    clients.add(handler);
-                    new Thread(handler).start();
+                    int assignedId = -1;
+                    for (int id = 1; id <= 4; id++) {
+                        boolean idInUse = false;
+                        for (ClientHandler client : clients) {
+                            if (client.playerId == id) {
+                                idInUse = true;
+                                break;
+                            }
+                        }
+                        if (!idInUse) {
+                            assignedId = id;
+                            break;
+                        }
+                    }
+                    if (assignedId != -1) {
+                        ClientHandler handler = new ClientHandler(socket, assignedId);
+                        clients.add(handler);
+                        new Thread(handler).start();
+                    } else {
+                        rejectConnection(socket, "Server full (no free player slots).");
+                    }
                 } else {
-                    socket.close(); // Server full
+                    rejectConnection(socket, "Server full (maximum 4 players).");
                 }
             }
         } catch (IOException e) {
             e.printStackTrace();
+        }
+    }
+
+    private void rejectConnection(Socket socket, String reason) {
+        try {
+            ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
+            out.writeUnshared(new NetworkPacket(NetworkPacket.Type.WELCOME, -1, reason));
+            out.flush();
+        } catch (IOException e) {
+            // Ignore disconnect
+        } finally {
+            try { socket.close(); } catch (IOException e) { e.printStackTrace(); }
         }
     }
 
@@ -92,6 +122,9 @@ public class GameServer {
                 System.out.println("Player " + playerId + " disconnected.");
             } finally {
                 clients.remove(this);
+                playerPositions.remove(playerId);
+                playerDirections.remove(playerId);
+                lastBurstTime.remove(playerId);
                 try { socket.close(); } catch (IOException e) { e.printStackTrace(); }
             }
         }

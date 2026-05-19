@@ -151,7 +151,17 @@ public class GamePanel extends JPanel {
     public void connect(String host) {
         this.serverIp = host;
         new Thread(() -> {
-            try (Socket socket = new Socket(host, 12345)) {
+            String ip = host;
+            int port = 12345;
+            if (host.contains(":")) {
+                String[] parts = host.split(":");
+                ip = parts[0];
+                try {
+                    port = Integer.parseInt(parts[1]);
+                } catch (NumberFormatException e) {
+                }
+            }
+            try (Socket socket = new Socket(ip, port)) {
                 out = new ObjectOutputStream(socket.getOutputStream());
                 ObjectInputStream in = new ObjectInputStream(socket.getInputStream());
 
@@ -159,6 +169,10 @@ public class GamePanel extends JPanel {
                     NetworkPacket packet = (NetworkPacket) in.readObject();
                     if (packet.type == NetworkPacket.Type.WELCOME) {
                         myPlayerId = packet.playerId;
+                        if (myPlayerId == -1) {
+                            String reason = packet.data != null ? packet.data.toString() : "Server is full.";
+                            throw new Exception(reason);
+                        }
                     } else if (packet.type == NetworkPacket.Type.UPDATE) {
                         remoteGameState = (GameState) packet.data;
                         
@@ -259,16 +273,26 @@ public class GamePanel extends JPanel {
         g2d.setFont(new Font("SansSerif", Font.BOLD, 36));
         drawCenteredString(g2d, "WAITING ROOM", 0, getHeight() / 2 - 80, getWidth());
 
-        g2d.setFont(new Font("SansSerif", Font.PLAIN, 24));
-        drawCenteredString(g2d, "Connect via IP: " + serverIp, 0, getHeight() / 2 - 20, getWidth());
+        g2d.setFont(new Font("SansSerif", Font.PLAIN, 20));
+        String displayIp = serverIp;
+        if (displayIp.equals("localhost") || displayIp.equals("127.0.0.1")) {
+            displayIp = com.hueharvest.shared.NetworkUtils.getLocalNetworkIp();
+        }
+        String roomCode = com.hueharvest.shared.NetworkUtils.ipToRoomCode(displayIp);
+
+        drawCenteredString(g2d, "Room Code: " + roomCode, 0, getHeight() / 2 - 30, getWidth());
+        drawCenteredString(g2d, "IP Address: " + displayIp, 0, getHeight() / 2 + 5, getWidth());
         
         int playerCount = remoteGameState.getNumPlayers();
-        drawCenteredString(g2d, "Players Connected: " + playerCount + " / 4", 0, getHeight() / 2 + 30, getWidth());
+        g2d.setFont(new Font("SansSerif", Font.PLAIN, 18));
+        drawCenteredString(g2d, "Players Connected: " + playerCount + " / 4", 0, getHeight() / 2 + 45, getWidth());
 
         if (myPlayerId == 1) {
             g2d.setColor(new Color(152, 251, 152));
+            g2d.setFont(new Font("SansSerif", Font.BOLD, 20));
             drawCenteredString(g2d, "Press [ENTER] to Start Game", 0, getHeight() / 2 + 100, getWidth());
         } else {
+            g2d.setFont(new Font("SansSerif", Font.PLAIN, 20));
             drawCenteredString(g2d, "Waiting for host to start...", 0, getHeight() / 2 + 100, getWidth());
         }
     }

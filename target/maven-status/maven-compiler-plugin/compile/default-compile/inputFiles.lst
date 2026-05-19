@@ -4,3 +4,4 @@
 /Users/athalia/hue-harvest/src/main/java/com/hueharvest/server/GameServer.java
 /Users/athalia/hue-harvest/src/main/java/com/hueharvest/shared/GameState.java
 /Users/athalia/hue-harvest/src/main/java/com/hueharvest/shared/NetworkPacket.java
+/Users/athalia/hue-harvest/src/main/java/com/hueharvest/shared/NetworkUtils.java

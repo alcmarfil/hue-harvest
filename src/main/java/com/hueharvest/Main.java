@@ -33,8 +33,9 @@ public class Main {
 
             String serverIp = "localhost";
             if (choice == 1) { // Join
-                serverIp = JOptionPane.showInputDialog(frame, "Enter Server IP / Room Code:", "localhost");
-                if (serverIp == null || serverIp.isEmpty()) System.exit(0);
+                String input = JOptionPane.showInputDialog(frame, "Enter Room Code or Server IP:", "");
+                if (input == null || input.trim().isEmpty()) System.exit(0);
+                serverIp = com.hueharvest.shared.NetworkUtils.roomCodeToIp(input);
             }
 
             GameState gameState = new GameState();
