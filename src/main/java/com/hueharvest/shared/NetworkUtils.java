@@ -63,21 +63,22 @@ public class NetworkUtils {
      */
     public static String roomCodeToIp(String code) {
         if (code == null) return "localhost";
-        code = code.trim().toUpperCase();
+        String trimmed = code.trim();
+        String upper = trimmed.toUpperCase();
         
         // If it's not 8 characters or contains non-hex characters, assume it's a raw IP or hostname
-        if (code.length() != 8 || !code.matches("^[0-9A-F]{8}$")) {
-            return code;
+        if (upper.length() != 8 || !upper.matches("^[0-9A-F]{8}$")) {
+            return trimmed; // Return original case (e.g. preserves lowercase for pinggy)
         }
         
         try {
             int[] parts = new int[4];
             for (int i = 0; i < 4; i++) {
-                parts[i] = Integer.parseInt(code.substring(i * 2, i * 2 + 2), 16);
+                parts[i] = Integer.parseInt(upper.substring(i * 2, i * 2 + 2), 16);
             }
             return parts[0] + "." + parts[1] + "." + parts[2] + "." + parts[3];
         } catch (Exception e) {
-            return code;
+            return trimmed;
         }
     }
 }
