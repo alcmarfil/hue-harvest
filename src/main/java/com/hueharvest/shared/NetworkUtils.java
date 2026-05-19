@@ -63,12 +63,12 @@ public class NetworkUtils {
      */
     public static String roomCodeToIp(String code) {
         if (code == null) return "localhost";
-        String trimmed = code.trim();
-        String upper = trimmed.toUpperCase();
+        String cleaned = code.replaceAll("\\s+", ""); // Strip all spaces, newlines, and tabs
+        String upper = cleaned.toUpperCase();
         
         // If it's not 8 characters or contains non-hex characters, assume it's a raw IP or hostname
         if (upper.length() != 8 || !upper.matches("^[0-9A-F]{8}$")) {
-            return trimmed; // Return original case (e.g. preserves lowercase for pinggy)
+            return cleaned; // Return original case without spaces
         }
         
         try {
@@ -78,7 +78,7 @@ public class NetworkUtils {
             }
             return parts[0] + "." + parts[1] + "." + parts[2] + "." + parts[3];
         } catch (Exception e) {
-            return trimmed;
+            return cleaned;
         }
     }
 }
