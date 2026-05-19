@@ -202,19 +202,29 @@ public class GamePanel extends JPanel {
                     }
                 }
             } catch (Exception e) {
-                JOptionPane.showMessageDialog(this, "Connection failed: " + e.getMessage());
+                if (myPlayerId == -1) {
+                    String msg = e.getMessage();
+                    if (msg == null || msg.equals("null")) msg = "Could not reach the server.";
+                    JOptionPane.showMessageDialog(this, "Connection failed: " + msg);
+                } else {
+                    String msg = e.getMessage();
+                    if (e instanceof java.io.EOFException || msg == null || msg.equals("null") || msg.contains("Socket closed") || msg.contains("Connection reset")) {
+                        msg = "The connection to the server was lost.";
+                    }
+                    JOptionPane.showMessageDialog(this, msg, "Connection Lost", JOptionPane.WARNING_MESSAGE);
+                }
             }
         }).start();
     }
 
-    public void sendPacket(NetworkPacket packet) {
+    public synchronized void sendPacket(NetworkPacket packet) {
         if (out != null) {
             try {
                 out.writeUnshared(packet);
                 out.flush();
                 out.reset();
             } catch (IOException e) {
-                e.printStackTrace();
+                // Silently ignore write failures on closed sockets
             }
         }
     }

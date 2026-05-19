@@ -1,4 +1,5 @@
 com/hueharvest/server/GameServer$1.class
+com/hueharvest/Main$1.class
 com/hueharvest/client/GamePanel$1.class
 com/hueharvest/shared/NetworkUtils.class
 com/hueharvest/server/GameServer.class

@@ -155,7 +155,8 @@ public class GameServer {
             }
         }
 
-        public void send(NetworkPacket packet) {
+        public synchronized void send(NetworkPacket packet) {
+            if (out == null) return;
             try {
                 out.writeUnshared(packet);
                 out.flush();
