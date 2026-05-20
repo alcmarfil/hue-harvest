@@ -103,6 +103,11 @@ public class GameServer {
         public ClientHandler(Socket socket, int playerId) {
             this.socket = socket;
             this.playerId = playerId;
+            try {
+                this.socket.setTcpNoDelay(true); // Disable Nagle's algorithm on the server side
+            } catch (java.net.SocketException e) {
+                e.printStackTrace();
+            }
         }
 
         @Override

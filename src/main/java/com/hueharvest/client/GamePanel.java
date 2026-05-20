@@ -162,6 +162,7 @@ public class GamePanel extends JPanel {
                 }
             }
             try (Socket socket = new Socket(ip, port)) {
+                socket.setTcpNoDelay(true); // Disable Nagle's algorithm for instant packet delivery
                 out = new ObjectOutputStream(socket.getOutputStream());
                 ObjectInputStream in = new ObjectInputStream(socket.getInputStream());
 
