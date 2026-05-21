@@ -23,37 +23,83 @@ public class Main {
             JPanel mainContainer = new JPanel(cardLayout);
 
             // ---------------------------------------------------------
-            // CARD 1: TITLE SCREEN PANEL (GIF Covers everything including sidebar space)
+            // CARD 1: TITLE SCREEN PANEL 
             // ---------------------------------------------------------
-            JPanel titlePanel = new JPanel() {
-                private Image titleGif = null;
+            JPanel titlePanel = new JPanel(null) {
+                private java.awt.image.BufferedImage bgImage = null;
+                private java.awt.image.BufferedImage textImage = null;
+                
+                // Optimized Animation Timeline States
+                private double progress = 0.0;          
+                private final double TIME_STEP = 0.035; 
+                private Timer revealTimer = null;
+
                 {
-                    java.net.URL gifUrl = getClass().getResource("/assets/title_screen.gif");
-                    if (gifUrl != null) {
-                        titleGif = Toolkit.getDefaultToolkit().createImage(gifUrl);
-                    }
+                    bgImage = com.hueharvest.client.AssetManager.getImage("title_screen_bg.png");
+                    textImage = com.hueharvest.client.AssetManager.getImage("title_text.png");
+
+                    // 60 FPS Render Loop
+                    revealTimer = new Timer(16, event -> {
+                        progress += TIME_STEP;
+                        
+                        if (progress >= 1.0) {
+                            progress = 1.0;     
+                            revealTimer.stop(); 
+                        }
+                        repaint();
+                    });
+                    revealTimer.start();
+                    
+                    setDoubleBuffered(true);
                 }
 
                 @Override
                 protected void paintComponent(Graphics g) {
                     super.paintComponent(g);
-                    if (titleGif != null) {
-                        g.drawImage(titleGif, 0, 0, getWidth(), getHeight(), this);
+                    Graphics2D g2d = (Graphics2D) g.create();
+
+                    g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                    g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+                    int panelWidth = getWidth();
+                    int panelHeight = getHeight();
+
+                    // render bg image
+                    if (bgImage != null) {
+                        g2d.drawImage(bgImage, 0, 0, panelWidth, panelHeight, null);
                     } else {
-                        g.setColor(Color.BLACK);
-                        g.fillRect(0, 0, getWidth(), getHeight());
-                        g.setColor(Color.WHITE);
-                        g.setFont(new Font("Poppins", Font.BOLD, 24));
-                        g.drawString("HUE HARVEST - PRESS ANY KEY TO START", getWidth() / 2 - 240, getHeight() / 2);
+                        g2d.setColor(Color.BLACK);
+                        g2d.fillRect(0, 0, panelWidth, panelHeight);
                     }
+
+                    // render digital reveal animation
+                    if (textImage != null) {
+                        // Fast-start with smooth landing easing formula
+                        double easedProgress = Math.sin(progress * (Math.PI / 2.0));
+                        float alpha = (float) Math.min(1.0, progress * 2.0);
+                        double currentScale = 0.92 + (0.08 * easedProgress);
+
+                        g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, alpha));
+
+                        int currentWidth = (int) (textImage.getWidth() * currentScale);
+                        int currentHeight = (int) (textImage.getHeight() * currentScale);
+
+                        int x = (panelWidth - currentWidth) / 2;
+                        int y = (panelHeight - currentHeight) / 2;
+
+                        g2d.drawImage(textImage, x, y, currentWidth, currentHeight, null);
+                    }
+
+                    g2d.dispose();
                 }
             };
-            
+
             // Total width must match: GamePanel width + Sidebar width 
             int gamePanelWidth = 640; 
             int sidebarWidth = 250;
             int totalHeight = 800; 
-            
+
+            titlePanel.setBackground(Color.BLACK);
             titlePanel.setPreferredSize(new Dimension(gamePanelWidth + sidebarWidth, totalHeight));
             titlePanel.setFocusable(true);
 
