@@ -664,9 +664,33 @@ public class Main {
             titlePanel.addKeyListener(new KeyAdapter() {
                 @Override
                 public void keyPressed(KeyEvent e) {
-                    titlePanel.removeKeyListener(this);
-                    cardLayout.show(mainContainer, CARD_MENU);
-                    menuPanel.requestFocusInWindow(); 
+                    if (e.getKeyCode() == KeyEvent.VK_ESCAPE) {
+                        System.exit(0); // exit the game
+                    } else {
+                        titlePanel.removeKeyListener(this);
+                        cardLayout.show(mainContainer, CARD_MENU);
+                        menuPanel.requestFocusInWindow();
+                    }
+                }
+            });
+
+            titlePanel.addComponentListener(new java.awt.event.ComponentAdapter() {
+                @Override
+                public void componentShown(java.awt.event.ComponentEvent e) {
+                    titlePanel.requestFocusInWindow();
+                    // add again the listener because we remove it from transition
+                    titlePanel.addKeyListener(new KeyAdapter() {
+                        @Override
+                        public void keyPressed(KeyEvent e) {
+                            if (e.getKeyCode() == KeyEvent.VK_ESCAPE) {
+                                System.exit(0);
+                            } else {
+                                titlePanel.removeKeyListener(this);
+                                cardLayout.show(mainContainer, CARD_MENU);
+                                menuPanel.requestFocusInWindow();
+                            }
+                        }
+                    });
                 }
             });
 
@@ -689,6 +713,10 @@ public class Main {
                     // Activation Event via Enter or Space key
                     else if (keyCode == KeyEvent.VK_ENTER || keyCode == KeyEvent.VK_SPACE) {
                         executeMenuOption(currentMenuIndex, frame, cardLayout, mainContainer, gamePanel);
+                    }
+                    else if (keyCode == KeyEvent.VK_ESCAPE) {
+                        cardLayout.show(mainContainer, CARD_TITLE);
+                        titlePanel.requestFocusInWindow();
                     }
                 }
             });
