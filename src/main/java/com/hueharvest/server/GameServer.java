@@ -13,13 +13,13 @@ public class GameServer {
     private static final int PORT = 12345;
     private final GameState gameState = new GameState();
     private final List<ClientHandler> clients = new CopyOnWriteArrayList<>();
-    private int nextPlayerId = 1;
+
 
     public void start() {
         System.out.println("Server started on port " + PORT);
         
         // Game Logic Loop (Server-side tick)
-        final int broadcastInterval = 16; // ms (~60 FPS)
+        final int broadcastInterval = 40; // ms (25 FPS - much more stable over remote connections)
         final int tickInterval = 1000;    // ms
         final int ticksPerSecond = tickInterval / broadcastInterval;
         final int[] counter = {0};
@@ -37,7 +37,6 @@ public class GameServer {
                     gameState.tick(); // Only decrement time once per second
                     counter[0] = 0;
                 }
-                // checkGoals() removed - match only ends on time
             }
             broadcast(new NetworkPacket(NetworkPacket.Type.UPDATE, 0, gameState));
         }, 0, broadcastInterval, TimeUnit.MILLISECONDS);
@@ -88,9 +87,11 @@ public class GameServer {
         }
     }
 
+    private final ExecutorService sendExecutor = Executors.newCachedThreadPool();
+
     private void broadcast(NetworkPacket packet) {
         for (ClientHandler client : clients) {
-            client.send(packet);
+            sendExecutor.submit(() -> client.send(packet));
         }
     }
 
@@ -130,6 +131,11 @@ public class GameServer {
                 playerPositions.remove(playerId);
                 playerDirections.remove(playerId);
                 lastBurstTime.remove(playerId);
+                rematchVotes.remove(playerId);
+                if (clients.isEmpty()) {
+                    gameState.reset();
+                    gameState.setStatus(GameState.Status.LOBBY);
+                }
                 try { socket.close(); } catch (IOException e) { e.printStackTrace(); }
             }
         }
@@ -156,6 +162,23 @@ public class GameServer {
                     packet.playerId = this.playerId;
                     broadcast(packet);
                 }
+                case REMATCH -> {
+                    rematchVotes.add(playerId);
+                    broadcast(new NetworkPacket(NetworkPacket.Type.CHAT, 0, "Player " + playerId + " voted for rematch (" + rematchVotes.size() + "/" + clients.size() + ")"));
+                    if (rematchVotes.size() >= clients.size()) {
+                        rematchVotes.clear();
+                        gameState.reset();
+                        gameState.setStatus(GameState.Status.PLAYING);
+                        initAllPlayers();
+                        broadcast(new NetworkPacket(NetworkPacket.Type.CHAT, 0, "Rematch started! Play!"));
+                    }
+                }
+                case QUIT -> {
+                    broadcast(new NetworkPacket(NetworkPacket.Type.QUIT, playerId, null));
+                    gameState.reset();
+                    gameState.setStatus(GameState.Status.LOBBY);
+                    rematchVotes.clear();
+                }
                 default -> {} 
             }
         }
@@ -176,6 +199,7 @@ public class GameServer {
     private final Map<Integer, Point> playerPositions = new ConcurrentHashMap<>();
     private final Map<Integer, Point> playerDirections = new ConcurrentHashMap<>();
     private final Map<Integer, Long> lastBurstTime = new ConcurrentHashMap<>();
+    private final Set<Integer> rematchVotes = ConcurrentHashMap.newKeySet();
     private static final long BURST_COOLDOWN = 5000;
 
     private void updatePlayerPos(int pId, int dx, int dy) {
@@ -226,9 +250,7 @@ public class GameServer {
         lastBurstTime.put(pId, currentTime);
     }
 
-    private void checkGoals() {
-        // Disabled as per user request - match only ends on time
-    }
+
 
     private void initAllPlayers() {
         for (ClientHandler client : clients) {

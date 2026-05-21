@@ -10,7 +10,9 @@ public class NetworkPacket implements Serializable {
         MOVE,          // Client to Server: Directional move
         BURST,         // Client to Server: Trigger ink burst
         UPDATE,        // Server to Client: Full GameState update
-        CHAT           // Client <-> Server: Chat message
+        CHAT,          // Client <-> Server: Chat message
+        REMATCH,       // Client to Server: Vote for rematch
+        QUIT           // Client/Server: Return to homepage / closing lobby
     }
 
     public Type type;
