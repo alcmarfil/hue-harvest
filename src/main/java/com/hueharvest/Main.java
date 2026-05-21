@@ -481,6 +481,18 @@ public class Main {
                         cl.show(mainContainer, "LobbyMenuCard");
                         if (lobbyMenuPanel != null) lobbyMenuPanel.requestFocusInWindow();
                     }
+                    else if (keyCode == java.awt.event.KeyEvent.VK_ENTER) {
+                        String finalRoomCode = codeField.getText().trim();
+                        if (!finalRoomCode.isEmpty()) {
+                            System.out.println("[Socket] Connecting to client network room: " + finalRoomCode);
+                            String serverIp = com.hueharvest.shared.NetworkUtils.roomCodeToIp(finalRoomCode);
+                            gamePanel.connect(serverIp);
+                            
+                            java.awt.CardLayout cl = (java.awt.CardLayout) mainContainer.getLayout();
+                            cl.show(mainContainer, CARD_GAME);
+                            gamePanel.requestFocusInWindow();
+                        }
+                    }
                 }
             });
 
