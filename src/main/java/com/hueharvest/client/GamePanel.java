@@ -20,7 +20,7 @@ public class GamePanel extends JPanel {
     private String serverIp = "localhost";
     private final List<String> chatMessages = new ArrayList<>();
     private java.util.function.Consumer<String> messageListener;
-    
+
     // Local Prediction for the current player to eliminate lag
     private int localX = -1, localY = -1;
 
@@ -29,7 +29,8 @@ public class GamePanel extends JPanel {
     }
 
     public boolean isBurstReady() {
-        if (remoteGameState == null || myPlayerId == -1) return true;
+        if (remoteGameState == null || myPlayerId == -1)
+            return true;
         return remoteGameState.isBurstReady(myPlayerId);
     }
 
@@ -41,39 +42,45 @@ public class GamePanel extends JPanel {
         this.messageListener = listener;
     }
 
-    private static final int TILE_SIZE = 40; 
+    private Runnable onQuitCallback;
+
+    public void setOnQuitCallback(Runnable callback) {
+        this.onQuitCallback = callback;
+    }
+
+    private static final int TILE_SIZE = 40;
     private static final double PLAYER_VISUAL_SCALE = 1.4; // Player is 40% larger than a tile
     private static final int ARC_SIZE = 12; // Visual Polish: Rounded corner radius
-    
+
     // Visual Polish: Array to track the "Pop" scale of each tile (1.0 = normal)
     private float[][] popScale;
 
     // Burst Ability Logic
-    private static final long BURST_COOLDOWN = 5000;
 
     public GamePanel(GameState gameState) {
         this.remoteGameState = gameState;
-        
+
         // Initialize the pop effects grid to default scale
         this.popScale = new float[GameState.GRID_SIZE][GameState.GRID_SIZE];
-        for(int r = 0; r < GameState.GRID_SIZE; r++) {
-            for(int c = 0; c < GameState.GRID_SIZE; c++) popScale[r][c] = 1.0f;
+        for (int r = 0; r < GameState.GRID_SIZE; r++) {
+            for (int c = 0; c < GameState.GRID_SIZE; c++)
+                popScale[r][c] = 1.0f;
         }
 
         setPreferredSize(new Dimension(GameState.GRID_SIZE * TILE_SIZE, GameState.GRID_SIZE * TILE_SIZE));
         setBackground(Color.WHITE);
         setFocusable(true);
         requestFocusInWindow();
-        
+
         addKeyListener(new KeyAdapter() {
             @Override
             public void keyPressed(KeyEvent e) {
                 if (isGameOver) {
-                    if (e.getKeyCode() == KeyEvent.VK_ESCAPE) System.exit(0);
-                    if (e.getKeyCode() == KeyEvent.VK_R && myPlayerId == 1) {
-                        // Reset request to server (could add a RESET packet type, but for now just restart)
-                        sendPacket(new NetworkPacket(NetworkPacket.Type.START, myPlayerId, null));
-                        isGameOver = false;
+                    if (e.getKeyCode() == KeyEvent.VK_ESCAPE) {
+                        sendPacket(new NetworkPacket(NetworkPacket.Type.QUIT, myPlayerId, null));
+                    }
+                    if (e.getKeyCode() == KeyEvent.VK_R) {
+                        sendPacket(new NetworkPacket(NetworkPacket.Type.REMATCH, myPlayerId, null));
                     }
                     return;
                 }
@@ -108,7 +115,7 @@ public class GamePanel extends JPanel {
                             localY = nextY;
                             repaint();
                         }
-                        sendPacket(new NetworkPacket(NetworkPacket.Type.MOVE, myPlayerId, new int[]{dx, dy}));
+                        sendPacket(new NetworkPacket(NetworkPacket.Type.MOVE, myPlayerId, new int[] { dx, dy }));
                     }
                 }
             }
@@ -132,7 +139,8 @@ public class GamePanel extends JPanel {
     }
 
     private void triggerLocalBurst() {
-        if (localX == -1 || localY == -1) return;
+        if (localX == -1 || localY == -1)
+            return;
         int dX = remoteGameState.getDirX(myPlayerId);
         int dY = remoteGameState.getDirY(myPlayerId);
         int targetX = localX + (dX * 3);
@@ -176,13 +184,19 @@ public class GamePanel extends JPanel {
                         }
                     } else if (packet.type == NetworkPacket.Type.UPDATE) {
                         remoteGameState = (GameState) packet.data;
-                        
-                        // Sync local prediction with server only if discrepancy is large to avoid jitter
+
+                        if (remoteGameState.getStatus() == GameState.Status.PLAYING) {
+                            isGameOver = false; // Reset game over screen when server restarts
+                        }
+
+                        // Sync local prediction with server only if discrepancy is large to avoid
+                        // jitter
                         if (myPlayerId != -1) {
                             int sX = remoteGameState.getPlayerX(myPlayerId);
                             int sY = remoteGameState.getPlayerY(myPlayerId);
                             // Relaxed sync threshold to prevent "elastic" snapping
-                            if (localX == -1 || localY == -1 || Math.abs(localX - sX) > 3 || Math.abs(localY - sY) > 3) {
+                            if (localX == -1 || localY == -1 || Math.abs(localX - sX) > 3
+                                    || Math.abs(localY - sY) > 3) {
                                 localX = sX;
                                 localY = sY;
                             }
@@ -197,23 +211,50 @@ public class GamePanel extends JPanel {
                         String sender = (packet.playerId == myPlayerId) ? "You" : "Player " + packet.playerId;
                         String msg = sender + ": " + packet.data;
                         chatMessages.add(msg);
-                        if (chatMessages.size() > 5) chatMessages.remove(0);
-                        if (messageListener != null) messageListener.accept(msg);
+                        if (chatMessages.size() > 5)
+                            chatMessages.remove(0);
+                        if (messageListener != null)
+                            messageListener.accept(msg);
                         repaint();
+                    } else if (packet.type == NetworkPacket.Type.QUIT) {
+                        isGameOver = false;
+                        try {
+                            socket.close();
+                        } catch (Exception ex) {
+                        }
+                        if (onQuitCallback != null) {
+                            SwingUtilities.invokeLater(onQuitCallback);
+                        }
+                        if (packet.playerId != myPlayerId) {
+                            JOptionPane.showMessageDialog(this,
+                                    "Player " + packet.playerId + " returned to the homepage. Lobby closed.",
+                                    "Lobby Closed", JOptionPane.INFORMATION_MESSAGE);
+                        }
+                        break;
                     }
                 }
             } catch (Exception e) {
                 if (myPlayerId == -1) {
                     String msg = e.getMessage();
-                    if (msg == null || msg.equals("null")) msg = "Could not reach the server.";
+                    if (msg == null || msg.equals("null"))
+                        msg = "Could not reach the server.";
                     JOptionPane.showMessageDialog(this, "Connection failed: " + msg);
                 } else {
                     String msg = e.getMessage();
-                    if (e instanceof java.io.EOFException || msg == null || msg.equals("null") || msg.contains("Socket closed") || msg.contains("Connection reset")) {
+                    if (e instanceof java.io.EOFException || msg == null || msg.equals("null")
+                            || msg.contains("Socket closed") || msg.contains("Connection reset")) {
                         msg = "The connection to the server was lost.";
                     }
                     JOptionPane.showMessageDialog(this, msg, "Connection Lost", JOptionPane.WARNING_MESSAGE);
                 }
+            } finally {
+                out = null;
+                myPlayerId = -1;
+                chatMessages.clear();
+                localX = -1;
+                localY = -1;
+                remoteGameState = new GameState();
+                repaint();
             }
         }).start();
     }
@@ -247,7 +288,7 @@ public class GamePanel extends JPanel {
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
         Graphics2D g2d = (Graphics2D) g;
-        
+
         // Antialiasing for smooth rounded corners and high-quality rendering
         g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
@@ -293,7 +334,7 @@ public class GamePanel extends JPanel {
 
         drawCenteredString(g2d, "Room Code: " + roomCode, 0, getHeight() / 2 - 30, getWidth());
         drawCenteredString(g2d, "IP Address: " + displayIp, 0, getHeight() / 2 + 5, getWidth());
-        
+
         int playerCount = remoteGameState.getNumPlayers();
         g2d.setFont(new Font("SansSerif", Font.PLAIN, 18));
         drawCenteredString(g2d, "Players Connected: " + playerCount + " / 4", 0, getHeight() / 2 + 45, getWidth());
@@ -309,8 +350,8 @@ public class GamePanel extends JPanel {
     }
 
     private void drawResultModal(Graphics2D g2d) {
-        // Soft Overlay 
-        g2d.setColor(new Color(30, 50, 40, 160)); 
+        // Soft Overlay
+        g2d.setColor(new Color(30, 50, 40, 160));
         g2d.fillRect(0, 0, getWidth(), getHeight());
 
         // Modal Dimensions
@@ -320,47 +361,106 @@ public class GamePanel extends JPanel {
 
         g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
-        // Border 
+        // Border
         g2d.setColor(new Color(143, 188, 143)); // SeaGreen/Sage
         g2d.fillRoundRect(mx - 6, my - 6, mW + 12, mH + 12, 40, 40);
 
-        // Main Body 
-        g2d.setColor(new Color(252, 249, 237)); 
+        // Main Body
+        g2d.setColor(new Color(252, 249, 237));
         g2d.fillRoundRect(mx, my, mW, mH, 35, 35);
 
-        // Header Ribbon 
+        // Header Ribbon
         boolean isVictory = gameOverTitle.equals("VICTORY!");
         Color accentColor = isVictory ? new Color(108, 153, 108) : new Color(204, 115, 115);
-        
+
         g2d.setColor(accentColor);
         g2d.fillRoundRect(mx + 60, my + 30, mW - 120, 50, 25, 25);
 
-        // Title 
+        // Title
         g2d.setFont(new Font("SansSerif", Font.BOLD, 28));
         g2d.setColor(Color.WHITE);
         drawCenteredString(g2d, gameOverTitle, mx, my + 65, mW);
 
-        // Subtitle 
+        // Subtitle
         g2d.setFont(new Font("SansSerif", Font.PLAIN, 18));
         g2d.setColor(new Color(60, 80, 60));
         drawCenteredString(g2d, gameOverSubtitle, mx, my + 120, mW);
 
-        // Score Area 
-        g2d.setColor(new Color(235, 230, 210)); 
+        // Score Area
+        g2d.setColor(new Color(235, 230, 210));
         g2d.fillRoundRect(mx + 50, my + 150, mW - 100, 70, 20, 20);
-        
-        // Icon Placeholder 
-        g2d.setColor(new Color(210, 180, 140)); 
+
+        // Dynamic Rank Calculation
+        int rank = 1;
+        int pId = myPlayerId != -1 ? myPlayerId : 1;
+        if (remoteGameState != null) {
+            int myScore = remoteGameState.getTileCount(pId);
+            for (int i = 1; i <= 4; i++) {
+                if (i != pId) {
+                    int otherScore = remoteGameState.getTileCount(i);
+                    if (otherScore > myScore) {
+                        rank++;
+                    } else if (otherScore == myScore && i < pId) {
+                        rank++;
+                    }
+                }
+            }
+        }
+
+        String rankStr = switch (rank) {
+            case 1 -> "1st";
+            case 2 -> "2nd";
+            case 3 -> "3rd";
+            case 4 -> "4th";
+            default -> rank + "th";
+        };
+
+        Color medalBg;
+        Color medalFg;
+        switch (rank) {
+            case 1 -> {
+                medalBg = new Color(255, 215, 0); // Gold
+                medalFg = new Color(139, 101, 8);
+            }
+            case 2 -> {
+                medalBg = new Color(192, 192, 192); // Silver
+                medalFg = new Color(90, 90, 90);
+            }
+            case 3 -> {
+                medalBg = new Color(205, 127, 50); // Bronze
+                medalFg = new Color(120, 60, 20);
+            }
+            default -> {
+                medalBg = new Color(176, 190, 197); // Slate/Steel
+                medalFg = new Color(80, 90, 100);
+            }
+        }
+
+        // Draw Medal Badge
+        g2d.setColor(medalBg);
         g2d.fillOval(mx + 70, my + 165, 40, 40);
 
-        g2d.setFont(new Font("SansSerif", Font.BOLD, 24));
-        g2d.setColor(new Color(101, 67, 33)); 
-        g2d.drawString(finalScore + " CROPS", mx + 130, my + 195);
+        g2d.setColor(medalFg);
+        g2d.setFont(new Font("SansSerif", Font.BOLD, 14));
+        FontMetrics medalMetrics = g2d.getFontMetrics();
+        int rx = mx + 70 + (40 - medalMetrics.stringWidth(rankStr)) / 2;
+        int ry = my + 165 + (40 - medalMetrics.getHeight()) / 2 + medalMetrics.getAscent();
+        g2d.drawString(rankStr, rx, ry);
+
+        // Rank Title Text
+        g2d.setFont(new Font("Poppins", Font.BOLD, 15));
+        g2d.setColor(medalFg);
+        g2d.drawString(rankStr + " Place", mx + 130, my + 182);
+
+        // Crop Count Text
+        g2d.setFont(new Font("Poppins", Font.BOLD, 18));
+        g2d.setColor(new Color(101, 67, 33));
+        g2d.drawString(finalScore + " CROPS", mx + 130, my + 203);
 
         // 7. Footer Instructions
         g2d.setFont(new Font("Monospaced", Font.BOLD, 14));
         g2d.setColor(new Color(120, 140, 120));
-        drawCenteredString(g2d, "Press [R] to Re-sow  •  [ESC] to Quit", mx, my + 270, mW);
+        drawCenteredString(g2d, "Press [R] to Re-sow  •  [ESC] to Exit", mx, my + 270, mW);
 
         // Decorative "Sprout" (Bottom corner detail)
         g2d.setColor(new Color(143, 188, 143));
@@ -372,14 +472,14 @@ public class GamePanel extends JPanel {
         int tx = x + (width - metrics.stringWidth(text)) / 2;
         g.drawString(text, tx, y);
     }
-    
+
     /**
      * Draws individual tiles with rounded corners and scaling effects.
      */
     private void drawTile(Graphics2D g2d, int x, int y) {
         int tileType = remoteGameState.getTile(x, y);
         float scale = popScale[y][x];
-        
+
         // Calculate size/position
         int baseSize = (int) (TILE_SIZE * scale);
         int baseOffset = (baseSize - TILE_SIZE) / 2;
@@ -405,14 +505,14 @@ public class GamePanel extends JPanel {
             // Task: Renderer - Relative scaling for the crop overlay
             double cropScaleFactor = 0.8; // 80% of tile size
             int cropSize = (int) (baseSize * cropScaleFactor);
-            
+
             // Centering the crop on top of the base tile
             int cropOffset = (baseSize - cropSize) / 2;
             int cropX = drawX + cropOffset;
             int cropY = drawY + cropOffset;
 
             BufferedImage cropImg = AssetManager.getImage("tile" + tileType + ".png");
-            
+
             if (cropImg != null) {
                 // Draw the actual crop asset (Tomato, Corn, etc.)
                 g2d.drawImage(cropImg, cropX, cropY, cropSize, cropSize, null);
@@ -424,7 +524,7 @@ public class GamePanel extends JPanel {
         }
 
         g2d.setClip(oldClip);
-        g2d.setColor(new Color(0, 0, 0, 30)); 
+        g2d.setColor(new Color(0, 0, 0, 30));
         g2d.draw(roundRect);
     }
 
@@ -433,9 +533,11 @@ public class GamePanel extends JPanel {
         int pY = (pId == myPlayerId && localY != -1) ? localY : remoteGameState.getPlayerY(pId);
         int dX = remoteGameState.getDirX(pId);
         int dY = remoteGameState.getDirY(pId);
-        
-        // Don't draw players that haven't moved/connected yet (initial pos 0,0 but pId != 1)
-        if (pX == 0 && pY == 0 && pId != 1 && remoteGameState.getTile(0, 0) != pId) return;
+
+        // Don't draw players that haven't moved/connected yet (initial pos 0,0 but pId
+        // != 1)
+        if (pX == 0 && pY == 0 && pId != 1 && remoteGameState.getTile(0, 0) != pId)
+            return;
 
         String directionSuffix = getDirectionSuffix(dX, dY);
         BufferedImage playerImg = AssetManager.getImage("player" + pId + "_" + directionSuffix + ".png");
@@ -448,7 +550,7 @@ public class GamePanel extends JPanel {
             // Character Renderer fallback
             g2d.setColor(getColorForPlayer(pId));
             g2d.fillOval(pX * TILE_SIZE - offset, pY * TILE_SIZE - offset, drawSize, drawSize);
-            
+
             // Small indicator of direction
             g2d.setColor(Color.BLACK);
             int eyeSize = 6;
@@ -459,15 +561,20 @@ public class GamePanel extends JPanel {
     }
 
     private String getDirectionSuffix(int dX, int dY) {
-        if (dX == 1) return "right";
-        if (dX == -1) return "left";
-        if (dY == 1) return "down";
-        if (dY == -1) return "up";
+        if (dX == 1)
+            return "right";
+        if (dX == -1)
+            return "left";
+        if (dY == 1)
+            return "down";
+        if (dY == -1)
+            return "up";
         return "down";
     }
 
     /**
-     * Task: Visual Polish - Manages the transition of the pop effect back to normal size.
+     * Task: Visual Polish - Manages the transition of the pop effect back to normal
+     * size.
      */
     private void updateAnimations() {
         boolean animating = false;
@@ -475,14 +582,15 @@ public class GamePanel extends JPanel {
             for (int x = 0; x < GameState.GRID_SIZE; x++) {
                 if (popScale[y][x] > 1.0f) {
                     popScale[y][x] -= 0.08f; // Faster decay for snappier feel
-                    if (popScale[y][x] < 1.0f) popScale[y][x] = 1.0f;
+                    if (popScale[y][x] < 1.0f)
+                        popScale[y][x] = 1.0f;
                     animating = true;
                 } else {
                     popScale[y][x] = 1.0f;
                 }
             }
         }
-        
+
         // Refresh the panel if animations are still active
         if (animating) {
             Timer t = new Timer(16, e -> repaint());

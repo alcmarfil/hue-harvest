@@ -587,7 +587,7 @@ public class Main {
             final ImageIcon checkIcon = (checkImg != null) ? new ImageIcon(checkImg) : null;
 
             JLabel burstStatusIcon = new JLabel();
-            burstStatusIcon.setBounds(158, 35, 70, 50); 
+            burstStatusIcon.setBounds(163, 35, 70, 50); // X, Y, Width, Height
             sidePanel.add(burstStatusIcon);
 
             JLabel[] playerScores = new JLabel[4];
@@ -631,6 +631,11 @@ public class Main {
                     if (chatMessages.size() > MAX_CHAT_LINES) chatMessages.removeFirst();
                     chatArea.setText(String.join("\n", chatMessages));
                 });
+            });
+
+            gamePanel.setOnQuitCallback(() -> {
+                cardLayout.show(mainContainer, CARD_MENU);
+                menuPanel.requestFocusInWindow();
             });
 
             gameContainer.add(gamePanel, BorderLayout.CENTER);
@@ -719,7 +724,17 @@ public class Main {
             // GAME CONTROL STATE UPDATER TIMER
             new Timer(200, e -> {
                 GameState remoteState = gamePanel.getRemoteGameState();
-                if (remoteState == null || remoteState.getStatus() == GameState.Status.LOBBY) return;
+                if (remoteState == null) return;
+
+                if (remoteState.getStatus() == GameState.Status.LOBBY) {
+                    for (int i = 0; i < 4; i++) {
+                        playerScores[i].setText("Player " + (i + 1) + ": 0");
+                    }
+                    timerLabel.setText(GameState.INITIAL_TIME + "s");
+                    burstStatusIcon.setIcon(null);
+                    burstStatusIcon.setText("READY");
+                    return;
+                }
 
                 for (int i = 0; i < 4; i++) {
                     playerScores[i].setText("Player " + (i + 1) + ": " + remoteState.getTileCount(i + 1));
