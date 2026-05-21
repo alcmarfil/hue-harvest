@@ -20,6 +20,10 @@ public class Main {
 
     public static void main(String[] args) {
         SwingUtilities.invokeLater(() -> {
+
+            GameState gameState = new GameState();
+            GamePanel gamePanel = new GamePanel(gameState);
+
             JFrame frame = new JFrame("Hue Harvest");
             frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
             frame.setResizable(false);
@@ -181,11 +185,365 @@ public class Main {
             menuPanel.setFocusable(true);
 
             // ---------------------------------------------------------
-            // CARD 3: ACTUAL GAME SCREEN CONTAINER & SIDEBAR
+            // CARD 3: LOBBY SELECTION SCREEN
+            // ---------------------------------------------------------
+            final int[] lobbyMenuIndex = {0}; // 0 = Host, 1 = Join
+            
+            JPanel lobbyMenuPanel = new JPanel(null) {
+                // declare needed image variables as fields of the panel
+                private java.awt.image.BufferedImage bgImage = null;
+                private java.awt.image.BufferedImage modalLobbyBg = null;
+                private java.awt.image.BufferedImage hostBtn = null;
+                private java.awt.image.BufferedImage joinBtn = null;
+                private java.awt.image.BufferedImage selectorBtn = null;
+
+                {
+                    // load asset using AssetManager 
+                    bgImage = com.hueharvest.client.AssetManager.getImage("overall_bg.png");
+                    modalLobbyBg = com.hueharvest.client.AssetManager.getImage("modal_lobby.png");
+                    hostBtn = com.hueharvest.client.AssetManager.getImage("host_btn.png"); 
+                    joinBtn = com.hueharvest.client.AssetManager.getImage("join_btn.png"); 
+                    selectorBtn = com.hueharvest.client.AssetManager.getImage("selector2.png");
+                    
+                    setDoubleBuffered(true);
+                }
+
+                @Override
+                protected void paintComponent(Graphics g) {
+                    super.paintComponent(g);
+                    Graphics2D g2d = (Graphics2D) g.create();
+                    
+                    g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                    g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+                    int panelWidth = getWidth();
+                    int panelHeight = getHeight();
+
+                    // render main overall background
+                    if (bgImage != null) {
+                        g2d.drawImage(bgImage, 0, 0, panelWidth, panelHeight, null);
+                    } else {
+                        g2d.setColor(Color.BLACK);
+                        g2d.fillRect(0, 0, panelWidth, panelHeight);
+                    }
+
+                    // render "modal_lobby.png" centered
+                    int modalX = 0, modalY = 0;
+                    int modalW = 0, modalH = 0;
+                    if (modalLobbyBg != null) {
+                        modalW = modalLobbyBg.getWidth();
+                        modalH = modalLobbyBg.getHeight();
+                        modalX = (panelWidth - modalW) / 2;
+                        modalY = (panelHeight - modalH) / 2;
+                        g2d.drawImage(modalLobbyBg, modalX, modalY, null);
+                    }
+
+                    // row layout for the  Host at Join buttons 
+                    java.awt.image.BufferedImage[] lobbyButtons = {hostBtn, joinBtn};
+                    int buttonGap = 40; 
+                    int totalRowWidth = 0;
+
+                    for (java.awt.image.BufferedImage btn : lobbyButtons) {
+                        if (btn != null) totalRowWidth += btn.getWidth();
+                    }
+                    totalRowWidth += buttonGap * (lobbyButtons.length - 1);
+
+                    int startRowX = modalX + (modalW - totalRowWidth) / 2;
+                    // fallback if no modal image
+                    int rowY = (modalLobbyBg != null) ? (modalY + modalH - 100) : (panelHeight - 150); 
+
+                    // paint buttons at custom selection cursor
+                    int currentBtnX = startRowX;
+                    for (int i = 0; i < lobbyButtons.length; i++) {
+                        java.awt.image.BufferedImage currentBtn = lobbyButtons[i];
+                        if (currentBtn == null) continue;
+
+                        int btnW = currentBtn.getWidth();
+                        int btnH = currentBtn.getHeight();
+
+                        g2d.drawImage(currentBtn, currentBtnX, rowY, null);
+
+                        // Selector Cursor logic 
+                        if (i == lobbyMenuIndex[0] && selectorBtn != null) {
+                            // center selector in the middle of button image (overlay)
+                            int selW = selectorBtn.getWidth();
+                            int selH = selectorBtn.getHeight();
+                            
+                            int selectorX = currentBtnX + (btnW - selW) / 2;
+                            int selectorY = rowY + (btnH - selH) / 2;
+                            
+                            g2d.drawImage(selectorBtn, selectorX, selectorY, null);
+                        }
+
+                        currentBtnX += btnW + buttonGap;
+                    }
+                    g2d.dispose();
+                }
+            };
+
+            lobbyMenuPanel.setFocusable(true);
+            lobbyMenuPanel.addKeyListener(new java.awt.event.KeyAdapter() {
+                @Override
+                public void keyPressed(java.awt.event.KeyEvent e) {
+                    int keyCode = e.getKeyCode();
+                    
+                    // navigate between Host (0) at Join (1) using Left/Right or A/D
+                    if (keyCode == java.awt.event.KeyEvent.VK_LEFT || keyCode == java.awt.event.KeyEvent.VK_A) {
+                        lobbyMenuIndex[0] = 0;
+                        lobbyMenuPanel.repaint();
+                    } else if (keyCode == java.awt.event.KeyEvent.VK_RIGHT || keyCode == java.awt.event.KeyEvent.VK_D) {
+                        lobbyMenuIndex[0] = 1;
+                        lobbyMenuPanel.repaint();
+                    } 
+                    // go back to Main Menu when enter ESC
+                    else if (keyCode == java.awt.event.KeyEvent.VK_ESCAPE) {
+                        java.awt.CardLayout cl = (java.awt.CardLayout) mainContainer.getLayout();
+                        cl.show(mainContainer, CARD_MENU);
+                        menuPanel.requestFocusInWindow();
+                    }
+                    // trigger action when enter Enter o Space
+                    else if (keyCode == java.awt.event.KeyEvent.VK_ENTER || keyCode == java.awt.event.KeyEvent.VK_SPACE) {
+                        lobbyMenuPanel.requestFocusInWindow();
+                        java.awt.CardLayout cl = (java.awt.CardLayout) mainContainer.getLayout();
+                        
+                        if (lobbyMenuIndex[0] == 0) {
+                            // start server on background separately
+                            new Thread(() -> {
+                                com.hueharvest.server.GameServer.main(new String[]{});
+                            }).start();
+
+                            // trigger instantly the transition without waiting in main()
+                            transitToGame("localhost", cl, mainContainer, gamePanel);
+
+                        } else {
+                            // --- JOIN ROUTINE ---
+                            cl.show(mainContainer, "JoinCodeCard");
+                        }
+                    }
+                }
+            });
+
+            // Automatic focus controller for Card 3 screen
+            lobbyMenuPanel.addComponentListener(new java.awt.event.ComponentAdapter() {
+                @Override
+                public void componentShown(java.awt.event.ComponentEvent e) {
+                    lobbyMenuPanel.requestFocusInWindow();
+                }
+            });
+
+            // ---------------------------------------------------------
+            // CARD 4: JOIN LOBBY INPUT CODE SCREEN
+            // ---------------------------------------------------------
+            final int[] joinBtnIndex = {0}; // 0 = Enter Code, 1 = Cancel
+            
+            JPanel joinCodePanel = new JPanel(null) {
+                // declare needed image variables as fields of the panel
+                private java.awt.image.BufferedImage bgImage = null;
+                private java.awt.image.BufferedImage inputCodeModal = null;
+                private java.awt.image.BufferedImage enterCodeBtn = null;
+                private java.awt.image.BufferedImage cancelBtn = null;
+                private java.awt.image.BufferedImage selectorBtn = null;
+
+                {
+                    // load asset using AssetManager 
+                    bgImage = com.hueharvest.client.AssetManager.getImage("overall_bg.png");
+                    inputCodeModal = com.hueharvest.client.AssetManager.getImage("input_code_modal.png");
+                    enterCodeBtn = com.hueharvest.client.AssetManager.getImage("enter_code_btn.png"); 
+                    cancelBtn = com.hueharvest.client.AssetManager.getImage("cancel_btn.png");         
+                    selectorBtn = com.hueharvest.client.AssetManager.getImage("selector2.png");
+                    
+                    setDoubleBuffered(true);
+                }
+
+                @Override
+                protected void paintComponent(Graphics g) {
+                    super.paintComponent(g);
+                    Graphics2D g2d = (Graphics2D) g.create();
+                    
+                    g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                    g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+                    int panelWidth = getWidth();
+                    int panelHeight = getHeight();
+
+                    // render background 
+                    if (bgImage != null) {
+                        g2d.drawImage(bgImage, 0, 0, panelWidth, panelHeight, null);
+                    } else {
+                        g2d.setColor(Color.BLACK);
+                        g2d.fillRect(0, 0, panelWidth, panelHeight);
+                    }
+
+                    // render "input_code_modal.png" centered
+                    int modalX = 0, modalY = 0;
+                    int modalW = 0, modalH = 0;
+                    if (inputCodeModal != null) {
+                        modalW = inputCodeModal.getWidth();
+                        modalH = inputCodeModal.getHeight();
+                        modalX = (panelWidth - modalW) / 2;
+                        modalY = (panelHeight - modalH) / 2;
+                        g2d.drawImage(inputCodeModal, modalX, modalY, null);
+                    }
+
+                    // row Layout for Enter and Cancel buttons 
+                    java.awt.image.BufferedImage[] actionBtns = {enterCodeBtn, cancelBtn};
+                    int buttonGap = 40;
+                    int totalRowWidth = 0;
+
+                    for (java.awt.image.BufferedImage btn : actionBtns) {
+                        if (btn != null) totalRowWidth += btn.getWidth();
+                    }
+                    totalRowWidth += buttonGap * (actionBtns.length - 1);
+
+                    int startRowX = modalX + (modalW - totalRowWidth) / 2;
+                    int rowY = (inputCodeModal != null) ? (modalY + modalH - 95) : (panelHeight - 120); 
+
+                    // render buttons and selector cursor 
+                    int currentBtnX = startRowX;
+                    Component[] comps = getComponents();
+                    boolean fieldHasFocus = false;
+                    for (Component c : comps) {
+                        if (c instanceof JTextField && c.hasFocus()) {
+                            fieldHasFocus = true;
+                            break;
+                        }
+                    }
+
+                    for (int i = 0; i < actionBtns.length; i++) {
+                        java.awt.image.BufferedImage currentBtn = actionBtns[i];
+                        if (currentBtn == null) continue;
+
+                        int btnW = currentBtn.getWidth();
+                        int btnH = currentBtn.getHeight();
+
+                        g2d.drawImage(currentBtn, currentBtnX, rowY, null);
+
+                        // Selector Cursor logic 
+                        if (i == joinBtnIndex[0] && !fieldHasFocus && selectorBtn != null) {
+                            int selW = selectorBtn.getWidth();
+                            int selH = selectorBtn.getHeight();
+                            
+                            int selectorX = currentBtnX + (btnW - selW) / 2;
+                            int selectorY = rowY + (btnH - selH) / 2;
+                            
+                            g2d.drawImage(selectorBtn, selectorX, selectorY, null);
+                        }
+
+                        currentBtnX += btnW + buttonGap;
+                    }
+                    g2d.dispose();
+                }
+            };
+            joinCodePanel.setOpaque(false);
+            joinCodePanel.setPreferredSize(new Dimension(totalWidth, totalHeight));
+
+            // NATIVE SWING TEXT FIELD SETUP
+            JTextField codeField = new JTextField();
+            codeField.setFont(new Font("Monospaced", Font.BOLD, 28));
+            Color customGreen = Color.decode("#b4c254");
+            codeField.setForeground(customGreen); 
+            codeField.setCaretColor(customGreen); 
+            codeField.setOpaque(false); 
+            codeField.setBorder(BorderFactory.createLineBorder(new Color(0, 200, 0), 2)); 
+            codeField.setHorizontalAlignment(JTextField.CENTER);
+
+            // Spatial alignment math using temporary fallback 
+            int tempModalW = 500;
+            int tempModalH = 350;
+            java.awt.image.BufferedImage testImg = com.hueharvest.client.AssetManager.getImage("input_code_modal.png");
+            if (testImg != null) {
+                tempModalW = testImg.getWidth();
+                tempModalH = testImg.getHeight();
+            }
+            
+            int mX = (totalWidth - tempModalW) / 2;
+            int mY = (totalHeight - tempModalH) / 2;
+
+            int fieldY = mY + (int)(tempModalH * 0.65) - 45; 
+            int fieldX = mX + (tempModalW - 320) / 2 + (int)(tempModalW * 0.08);
+
+            codeField.setBounds(fieldX, fieldY, 320, 50);
+            joinCodePanel.add(codeField);
+            codeField.setOpaque(false);
+            codeField.setBorder(BorderFactory.createLineBorder(new Color(200, 200, 200), 2));
+
+            // FLOW CONTROL AT KEY NAVIGATION FOR INPUT LAYER
+            codeField.addKeyListener(new java.awt.event.KeyAdapter() {
+                @Override
+                public void keyPressed(java.awt.event.KeyEvent e) {
+                    int keyCode = e.getKeyCode();
+                    if (keyCode == java.awt.event.KeyEvent.VK_DOWN) {
+                        joinCodePanel.requestFocusInWindow();
+                        joinCodePanel.repaint();
+                    } else if (keyCode == java.awt.event.KeyEvent.VK_ESCAPE) {
+                        codeField.setText("");
+                        java.awt.CardLayout cl = (java.awt.CardLayout) mainContainer.getLayout();
+                        cl.show(mainContainer, "LobbyMenuCard");
+                        if (lobbyMenuPanel != null) lobbyMenuPanel.requestFocusInWindow();
+                    }
+                }
+            });
+
+            // Listener for actual panel (when focus is on the buttons)
+            joinCodePanel.addKeyListener(new java.awt.event.KeyAdapter() {
+                @Override
+                public void keyPressed(java.awt.event.KeyEvent e) {
+                    int keyCode = e.getKeyCode();
+                    
+                    if (keyCode == java.awt.event.KeyEvent.VK_LEFT || keyCode == java.awt.event.KeyEvent.VK_A) {
+                        joinBtnIndex[0] = 0; // Enter Code Button Focus
+                        joinCodePanel.repaint();
+                    } 
+                    else if (keyCode == java.awt.event.KeyEvent.VK_RIGHT || keyCode == java.awt.event.KeyEvent.VK_D) {
+                        joinBtnIndex[0] = 1; // Cancel Button Focus
+                        joinCodePanel.repaint();
+                    } 
+                    else if (keyCode == java.awt.event.KeyEvent.VK_UP || keyCode == java.awt.event.KeyEvent.VK_W) {
+                        codeField.requestFocusInWindow();
+                        joinCodePanel.repaint();
+                    }
+                    else if (keyCode == java.awt.event.KeyEvent.VK_ESCAPE) {
+                        codeField.setText("");
+                        java.awt.CardLayout cl = (java.awt.CardLayout) mainContainer.getLayout();
+                        cl.show(mainContainer, "LobbyMenuCard");
+                        if (lobbyMenuPanel != null) lobbyMenuPanel.requestFocusInWindow();
+                    }
+                    else if (keyCode == java.awt.event.KeyEvent.VK_ENTER || keyCode == java.awt.event.KeyEvent.VK_SPACE) {
+                        java.awt.CardLayout cl = (java.awt.CardLayout) mainContainer.getLayout();
+                        if (joinBtnIndex[0] == 0) {
+                            // ENTER CODE CLICKED
+                            String finalRoomCode = codeField.getText().trim();
+                            if (!finalRoomCode.isEmpty()) {
+                                System.out.println("[Socket] Connecting to client network room matching string: " + finalRoomCode);
+                                String serverIp = com.hueharvest.shared.NetworkUtils.roomCodeToIp(finalRoomCode);
+                                gamePanel.connect(serverIp);
+                                cl.show(mainContainer, CARD_GAME);
+                                gamePanel.requestFocusInWindow();
+                            }
+                        } else {
+                            // CANCEL CLICKED
+                            codeField.setText("");
+                            cl.show(mainContainer, "LobbyMenuCard");
+                            if (lobbyMenuPanel != null) lobbyMenuPanel.requestFocusInWindow();
+                        }
+                    }
+                }
+            });
+
+            // Automatic focus handle when going back to this screen
+            joinCodePanel.addComponentListener(new java.awt.event.ComponentAdapter() {
+                @Override
+                public void componentShown(java.awt.event.ComponentEvent e) {
+                    joinBtnIndex[0] = 0; 
+                    codeField.setText("");
+                    codeField.requestFocusInWindow();
+                }
+            });
+
+            // ---------------------------------------------------------
+            // CARD 5: ACTUAL GAME SCREEN CONTAINER & SIDEBAR
             // ---------------------------------------------------------
             JPanel gameContainer = new JPanel(new BorderLayout());
-            GameState gameState = new GameState();
-            GamePanel gamePanel = new GamePanel(gameState);
             
             JPanel sidePanel = new JPanel() {
                 @Override
@@ -269,6 +627,8 @@ public class Main {
             // Assemble into Card Stack
             mainContainer.add(titlePanel, CARD_TITLE);
             mainContainer.add(menuPanel, CARD_MENU);
+            mainContainer.add(lobbyMenuPanel, "LobbyMenuCard"); 
+            mainContainer.add(joinCodePanel, "JoinCodeCard");   
             mainContainer.add(gameContainer, CARD_GAME);
 
             frame.setLayout(new BorderLayout());
@@ -342,39 +702,34 @@ public class Main {
         });
     }
 
+    private static void transitToGame(String ip, CardLayout cl, JPanel container, GamePanel gp) {
+        SwingUtilities.invokeLater(() -> {
+            gp.connect(ip);
+            cl.show(container, CARD_GAME);
+            gp.requestFocusInWindow();
+        });
+    }
+
     // ---------------------------------------------------------
     // MENU FUNCTION ACTIVATION ROUTINE
     // ---------------------------------------------------------
     private static void executeMenuOption(int index, JFrame frame, CardLayout cl, JPanel container, GamePanel gamePanel) {
         switch (index) {
             case 0: // 1. Enter Lobby Option Selected
-                String[] options = {"Host Game", "Join Game"};
-                int choice = JOptionPane.showOptionDialog(frame, "Welcome to Hue Harvest Online!", 
-                    "Lobby Access", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
-
-                if (choice == -1) return; // go back to menu if input window is closed
-
-                String serverIp = "localhost";
-
-                if (choice == 0) { // Host Routine
-                    new Thread(() -> {
-                        try {
-                            com.hueharvest.server.GameServer.main(new String[]{});
-                        } catch (Exception ex) {
-                            ex.printStackTrace();
-                        }
-                    }).start();
-                    try { Thread.sleep(500); } catch (InterruptedException ex) {}
-                } else { // Join Routine
-                    String input = JOptionPane.showInputDialog(frame, "Enter Room Code or Server IP:", "");
-                    if (input == null || input.trim().isEmpty()) return;
-                    serverIp = com.hueharvest.shared.NetworkUtils.roomCodeToIp(input);
+                // Instead of JOptionPane, i-show na natin ang ginawa mong custom Lobby Selection Screen (CARD 3)
+                cl.show(container, "LobbyMenuCard");
+                
+                // Hanapin natin yung lobbyMenuPanel sa loob ng container para ma-set ang keyboard focus sa kanya
+                for (Component c : container.getComponents()) {
+                    if (c instanceof JPanel && "LobbyMenuCard".equals(container.getLayout().toString())) {
+                        // Safe fallback kung hindi direktang makuha, pero mas mainam na tawagan natin directly via layout transition
+                    }
                 }
-
-                // Connect and transition into the game screen
-                gamePanel.connect(serverIp);
-                cl.show(container, CARD_GAME);
-                gamePanel.requestFocusInWindow();
+                
+                // At dahil dynamic ang focus handling mo, siguraduhing mag-request ng focus sa window
+                // Tip: Mas maganda kung i-add mo rin ito sa componentShown listener ng lobbyMenuPanel sa main setup mo.
+                container.revalidate();
+                container.repaint();
                 break;
 
             case 1: // 2. How to Play Option Selected
