@@ -646,6 +646,7 @@ public class Main {
                 private java.awt.image.BufferedImage bgImage = null;
                 private java.awt.image.BufferedImage about1 = null;
                 private java.awt.image.BufferedImage about2 = null;
+                private java.awt.image.BufferedImage about3 = null;
                 private java.awt.image.BufferedImage selectorBtn = null;
                 private java.awt.image.BufferedImage nextBtnImg = null;
                 private java.awt.image.BufferedImage backBtnImg = null;
@@ -656,9 +657,10 @@ public class Main {
                     bgImage = com.hueharvest.client.AssetManager.getImage("overall_bg.png");
                     about1 = com.hueharvest.client.AssetManager.getImage("aboutTheGame.png");
                     about2 = com.hueharvest.client.AssetManager.getImage("aboutTheGame (2).png");
+                    about3 = com.hueharvest.client.AssetManager.getImage("aboutTheGame (3).png");
                     selectorBtn = com.hueharvest.client.AssetManager.getImage("selector2.png");
-                    nextBtnImg = com.hueharvest.client.AssetManager.getImage("next_btn.png");
-                    backBtnImg = com.hueharvest.client.AssetManager.getImage("back_btn.png");
+                    nextBtnImg = com.hueharvest.client.AssetManager.getImage("abt_next_btn.png");
+                    backBtnImg = com.hueharvest.client.AssetManager.getImage("abt_back_btn.png");
                     setDoubleBuffered(true);
 
                     setFocusable(true);
@@ -678,7 +680,7 @@ public class Main {
                                 menuPanel.requestFocusInWindow();
                             } else if (keyCode == java.awt.event.KeyEvent.VK_ENTER || keyCode == java.awt.event.KeyEvent.VK_SPACE) {
                                 if (selectedButtonIndex == 0) {
-                                    pageIndex = (pageIndex == 0) ? 1 : 0;
+                                    pageIndex = (pageIndex + 1) % 3;
                                     repaint();
                                 } else {
                                     java.awt.CardLayout cl = (java.awt.CardLayout) mainContainer.getLayout();
@@ -718,7 +720,7 @@ public class Main {
                     }
 
                     // Render modal page image
-                    java.awt.image.BufferedImage activeModal = (pageIndex == 0) ? about1 : about2;
+                    java.awt.image.BufferedImage activeModal = (pageIndex == 0) ? about1 : (pageIndex == 1) ? about2  : about3;
                     if (activeModal != null) {
                         g2d.drawImage(activeModal, 0, 0, panelWidth, panelHeight, null);
                     } else {
