@@ -20,6 +20,9 @@ public class GamePanel extends JPanel {
     private String serverIp = "localhost";
     private final List<String> chatMessages = new ArrayList<>();
     private java.util.function.Consumer<String> messageListener;
+    private final java.util.Map<Integer, Integer> playerFrameIndex = new java.util.HashMap<>();
+    private final java.util.Map<Integer, Long> lastFrameTime = new java.util.HashMap<>();
+    private final int[] walkSequence = {0, 1, 2, 1};
 
     // Local Prediction for the current player to eliminate lag
     private int localX = -1, localY = -1;
@@ -529,47 +532,38 @@ public class GamePanel extends JPanel {
     }
 
     private void drawPlayer(Graphics2D g2d, int pId) {
-        int pX = (pId == myPlayerId && localX != -1) ? localX : remoteGameState.getPlayerX(pId);
-        int pY = (pId == myPlayerId && localY != -1) ? localY : remoteGameState.getPlayerY(pId);
-        int dX = remoteGameState.getDirX(pId);
-        int dY = remoteGameState.getDirY(pId);
+    int pX = (pId == myPlayerId && localX != -1) ? localX : remoteGameState.getPlayerX(pId);
+    int pY = (pId == myPlayerId && localY != -1) ? localY : remoteGameState.getPlayerY(pId);
+    int dX = remoteGameState.getDirX(pId);
+    int dY = remoteGameState.getDirY(pId);
 
-        // Don't draw players that haven't moved/connected yet (initial pos 0,0 but pId
-        // != 1)
-        if (pX == 0 && pY == 0 && pId != 1 && remoteGameState.getTile(0, 0) != pId)
-            return;
+    // Initial check (kung di pa nag-move)
+    if (pX == 0 && pY == 0 && pId != 1 && remoteGameState.getTile(0, 0) != pId) return;
 
-        String directionSuffix = getDirectionSuffix(dX, dY);
-        BufferedImage playerImg = AssetManager.getImage("player" + pId + "_" + directionSuffix + ".png");
-        int drawSize = (int) (TILE_SIZE * PLAYER_VISUAL_SCALE);
-        int offset = (drawSize - TILE_SIZE) / 2;
+    String dir = getDirName(dX, dY);
+    
+    int seqIndex = playerFrameIndex.getOrDefault(pId, 1);
+    int actualFrame = walkSequence[seqIndex]; 
+    
+    String fileName = "player" + pId + "_" + dir + "_" + actualFrame + ".png";
+    BufferedImage playerImg = AssetManager.getImage(fileName);
+    
+    int drawSize = (int) (TILE_SIZE * PLAYER_VISUAL_SCALE);
+    int offset = (drawSize - TILE_SIZE) / 2;
 
-        if (playerImg != null) {
-            g2d.drawImage(playerImg, pX * TILE_SIZE - offset, pY * TILE_SIZE - offset, drawSize, drawSize, null);
-        } else {
-            // Character Renderer fallback
-            g2d.setColor(getColorForPlayer(pId));
-            g2d.fillOval(pX * TILE_SIZE - offset, pY * TILE_SIZE - offset, drawSize, drawSize);
-
-            // Small indicator of direction
-            g2d.setColor(Color.BLACK);
-            int eyeSize = 6;
-            int ex = pX * TILE_SIZE + TILE_SIZE / 2 + dX * 10 - eyeSize / 2;
-            int ey = pY * TILE_SIZE + TILE_SIZE / 2 + dY * 10 - eyeSize / 2;
-            g2d.fillOval(ex, ey, eyeSize, eyeSize);
-        }
+    if (playerImg != null) {
+        g2d.drawImage(playerImg, pX * TILE_SIZE - offset, pY * TILE_SIZE - offset, drawSize, drawSize, null);
+    } else {
+        g2d.setColor(getColorForPlayer(pId));
+        g2d.fillOval(pX * TILE_SIZE - offset, pY * TILE_SIZE - offset, drawSize, drawSize);
     }
-
-    private String getDirectionSuffix(int dX, int dY) {
-        if (dX == 1)
-            return "right";
-        if (dX == -1)
-            return "left";
-        if (dY == 1)
-            return "down";
-        if (dY == -1)
-            return "up";
-        return "down";
+}
+    private String getDirName(int dX, int dY) {
+        if (dX == 1) return "right";
+        if (dX == -1) return "left";
+        if (dY == 1) return "down";
+        if (dY == -1) return "up";
+        return "down"; // Default
     }
 
     /**
@@ -588,6 +582,25 @@ public class GamePanel extends JPanel {
                 } else {
                     popScale[y][x] = 1.0f;
                 }
+            }
+        }
+
+        long now = System.currentTimeMillis();
+        int[] walkSequence = {0, 1, 2, 1}; // Sequence: Left, Static, Right, Static
+
+        for (int pId = 1; pId <= 4; pId++) {
+            if (remoteGameState.getDirX(pId) != 0 || remoteGameState.getDirY(pId) != 0) {
+                if (now - lastFrameTime.getOrDefault(pId, 0L) > 150) {
+                    int seqIndex = playerFrameIndex.getOrDefault(pId, 0);
+                    
+                    int nextSeqIndex = (seqIndex + 1) % 4;
+                    playerFrameIndex.put(pId, nextSeqIndex);
+                    
+                    lastFrameTime.put(pId, now);
+                    animating = true; 
+                }
+            } else {
+                playerFrameIndex.put(pId, 1);
             }
         }
 
