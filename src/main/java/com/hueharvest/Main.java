@@ -647,6 +647,8 @@ public class Main {
                 private java.awt.image.BufferedImage about1 = null;
                 private java.awt.image.BufferedImage about2 = null;
                 private java.awt.image.BufferedImage selectorBtn = null;
+                private java.awt.image.BufferedImage nextBtnImg = null;
+                private java.awt.image.BufferedImage backBtnImg = null;
                 private int pageIndex = 0; // 0 = Page 1, 1 = Page 2
                 private int selectedButtonIndex = 0; // 0 = NEXT/PREV, 1 = BACK
 
@@ -655,6 +657,8 @@ public class Main {
                     about1 = com.hueharvest.client.AssetManager.getImage("aboutTheGame.png");
                     about2 = com.hueharvest.client.AssetManager.getImage("aboutTheGame (2).png");
                     selectorBtn = com.hueharvest.client.AssetManager.getImage("selector2.png");
+                    nextBtnImg = com.hueharvest.client.AssetManager.getImage("next_btn.png");
+                    backBtnImg = com.hueharvest.client.AssetManager.getImage("back_btn.png");
                     setDoubleBuffered(true);
 
                     setFocusable(true);
@@ -715,65 +719,46 @@ public class Main {
 
                     // Render modal page image
                     java.awt.image.BufferedImage activeModal = (pageIndex == 0) ? about1 : about2;
-                    int modalX = 0, modalY = 0;
-                    int modalW = 0, modalH = 0;
                     if (activeModal != null) {
-                        modalW = activeModal.getWidth();
-                        modalH = activeModal.getHeight();
-                        modalX = (panelWidth - modalW) / 2;
-                        modalY = (panelHeight - modalH) / 2 - 40; // slightly offset up to leave space below
-                        g2d.drawImage(activeModal, modalX, modalY, null);
+                        g2d.drawImage(activeModal, 0, 0, panelWidth, panelHeight, null);
                     } else {
                         // Fallback if image not loaded
-                        modalW = 640;
-                        modalH = 480;
-                        modalX = (panelWidth - modalW) / 2;
-                        modalY = (panelHeight - modalH) / 2 - 40;
+                        int modalW = 640;
+                        int modalH = 480;
+                        int modalX = (panelWidth - modalW) / 2;
+                        int modalY = (panelHeight - modalH) / 2 - 40;
                         g2d.setColor(new Color(230, 215, 195));
                         g2d.fillRoundRect(modalX, modalY, modalW, modalH, 20, 20);
                     }
 
-                    // Draw NEXT/PREV and BACK buttons below the modal
-                    int btnW = 200;
-                    int btnH = 50;
-                    int btnGap = 40;
-                    int totalRowWidth = btnW * 2 + btnGap;
-                    int startRowX = (panelWidth - totalRowWidth) / 2;
-                    int rowY = modalY + modalH + 30; // 30px spacing below the modal
+                    // Render NEXT button image overlay
+                    if (nextBtnImg != null) {
+                        g2d.drawImage(nextBtnImg, 0, 0, panelWidth, panelHeight, null);
+                    }
 
-                    String[] btnTexts = {
-                        (pageIndex == 0) ? "NEXT" : "PREV",
-                        "BACK"
-                    };
+                    // Render BACK button image overlay
+                    if (backBtnImg != null) {
+                        g2d.drawImage(backBtnImg, 0, 0, panelWidth, panelHeight, null);
+                    }
 
-                    for (int i = 0; i < 2; i++) {
-                        int x = startRowX + i * (btnW + btnGap);
+                    // Map 1000x750 design coordinates to scaled panelWidth x panelHeight for selector overlay
+                    double scaleX = (double) panelWidth / 1000.0;
+                    double scaleY = (double) panelHeight / 750.0;
 
-                        // Draw button background (matching the yellow/cream look)
-                        g2d.setColor(new Color(255, 251, 224));
-                        g2d.fillRoundRect(x, rowY, btnW, btnH, 15, 15);
+                    int leftBtnX = (int) (220 * scaleX);
+                    int rightBtnX = (int) (522 * scaleX);
+                    int btnY = (int) (600 * scaleY);
+                    int btnW = (int) (250 * scaleX);
+                    int btnH = (int) (75 * scaleY);
 
-                        // Draw button border
-                        g2d.setColor(new Color(212, 175, 125));
-                        g2d.setStroke(new java.awt.BasicStroke(3f));
-                        g2d.drawRoundRect(x, rowY, btnW, btnH, 15, 15);
-
-                        // Draw text
-                        g2d.setColor(new Color(139, 115, 85));
-                        g2d.setFont(new Font("Poppins", Font.BOLD, 18));
-                        FontMetrics fm = g2d.getFontMetrics();
-                        int textX = x + (btnW - fm.stringWidth(btnTexts[i])) / 2;
-                        int textY = rowY + (btnH - fm.getHeight()) / 2 + fm.getAscent();
-                        g2d.drawString(btnTexts[i], textX, textY);
-
-                        // Draw selector overlay if this button is selected
-                        if (i == selectedButtonIndex && selectorBtn != null) {
-                            int selW = selectorBtn.getWidth();
-                            int selH = selectorBtn.getHeight();
-                            int selectorX = x + (btnW - selW) / 2;
-                            int selectorY = rowY + (btnH - selH) / 2;
-                            g2d.drawImage(selectorBtn, selectorX, selectorY, null);
-                        }
+                    // Draw selector overlay if selected
+                    int activeX = (selectedButtonIndex == 0) ? leftBtnX : rightBtnX;
+                    if (selectorBtn != null) {
+                        int selW = selectorBtn.getWidth();
+                        int selH = selectorBtn.getHeight();
+                        int selectorX = activeX + (btnW - selW) / 2;
+                        int selectorY = btnY + (btnH - selH) / 2;
+                        g2d.drawImage(selectorBtn, selectorX, selectorY, null);
                     }
 
                     g2d.dispose();
