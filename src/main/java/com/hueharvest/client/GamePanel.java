@@ -26,6 +26,9 @@ public class GamePanel extends JPanel {
 
     // Local Prediction for the current player to eliminate lag
     private int localX = -1, localY = -1;
+    private final java.util.Set<Integer> pressedKeys = new java.util.HashSet<>();
+    private long lastMoveTime = 0;
+    private static final long MOVE_COOLDOWN = 110; // ms between continuous steps
 
     public int getMyPlayerId() {
         return myPlayerId;
@@ -78,11 +81,12 @@ public class GamePanel extends JPanel {
         addKeyListener(new KeyAdapter() {
             @Override
             public void keyPressed(KeyEvent e) {
+                int key = e.getKeyCode();
                 if (isGameOver) {
-                    if (e.getKeyCode() == KeyEvent.VK_ESCAPE) {
+                    if (key == KeyEvent.VK_ESCAPE) {
                         sendPacket(new NetworkPacket(NetworkPacket.Type.QUIT, myPlayerId, null));
                     }
-                    if (e.getKeyCode() == KeyEvent.VK_R) {
+                    if (key == KeyEvent.VK_R) {
                         sendPacket(new NetworkPacket(NetworkPacket.Type.REMATCH, myPlayerId, null));
                     }
                     return;
@@ -90,36 +94,50 @@ public class GamePanel extends JPanel {
 
                 // Client Input Handling
                 if (remoteGameState.getStatus() == GameState.Status.LOBBY) {
-                    if (e.getKeyCode() == KeyEvent.VK_ENTER && myPlayerId == 1) {
+                    if (key == KeyEvent.VK_ENTER && myPlayerId == 1) {
                         sendPacket(new NetworkPacket(NetworkPacket.Type.START, myPlayerId, null));
                     }
                 }
 
-                if (e.getKeyCode() == KeyEvent.VK_SPACE) {
+                if (key == KeyEvent.VK_SPACE) {
                     if (isBurstReady()) {
                         // Local Prediction for Burst
                         triggerLocalBurst();
                         sendPacket(new NetworkPacket(NetworkPacket.Type.BURST, myPlayerId, null));
                     }
-                } else {
-                    int dx = 0, dy = 0;
-                    switch (e.getKeyCode()) {
-                        case KeyEvent.VK_W, KeyEvent.VK_UP -> dy = -1;
-                        case KeyEvent.VK_S, KeyEvent.VK_DOWN -> dy = 1;
-                        case KeyEvent.VK_A, KeyEvent.VK_LEFT -> dx = -1;
-                        case KeyEvent.VK_D, KeyEvent.VK_RIGHT -> dx = 1;
+                }
+
+                if (isMovementKey(key)) {
+                    synchronized (pressedKeys) {
+                        pressedKeys.add(key);
                     }
-                    if (dx != 0 || dy != 0) {
-                        // Local Prediction: Update position immediately for visual feedback
-                        if (localX != -1 && localY != -1) {
-                            int nextX = Math.max(0, Math.min(GameState.GRID_SIZE - 1, localX + dx));
-                            int nextY = Math.max(0, Math.min(GameState.GRID_SIZE - 1, localY + dy));
-                            localX = nextX;
-                            localY = nextY;
-                            repaint();
-                        }
-                        sendPacket(new NetworkPacket(NetworkPacket.Type.MOVE, myPlayerId, new int[] { dx, dy }));
+                    processMovementTick();
+                }
+            }
+
+            @Override
+            public void keyReleased(KeyEvent e) {
+                int key = e.getKeyCode();
+                if (isMovementKey(key)) {
+                    synchronized (pressedKeys) {
+                        pressedKeys.remove(key);
                     }
+                }
+            }
+
+            private boolean isMovementKey(int key) {
+                return key == KeyEvent.VK_W || key == KeyEvent.VK_UP ||
+                       key == KeyEvent.VK_S || key == KeyEvent.VK_DOWN ||
+                       key == KeyEvent.VK_A || key == KeyEvent.VK_LEFT ||
+                       key == KeyEvent.VK_D || key == KeyEvent.VK_RIGHT;
+            }
+        });
+
+        addFocusListener(new java.awt.event.FocusAdapter() {
+            @Override
+            public void focusLost(java.awt.event.FocusEvent e) {
+                synchronized (pressedKeys) {
+                    pressedKeys.clear();
                 }
             }
         });
@@ -127,6 +145,7 @@ public class GamePanel extends JPanel {
         // Dedicate a timer for all visual updates to keep the UI responsive
         new Timer(16, e -> {
             if (remoteGameState != null) {
+                processMovementTick();
                 updateAnimations();
                 repaint();
             }
@@ -139,6 +158,46 @@ public class GamePanel extends JPanel {
                 requestFocusInWindow();
             }
         });
+    }
+
+    private void processMovementTick() {
+        if (remoteGameState == null || remoteGameState.getStatus() != GameState.Status.PLAYING || isGameOver) {
+            return;
+        }
+
+        long now = System.currentTimeMillis();
+        if (now - lastMoveTime < MOVE_COOLDOWN) {
+            return;
+        }
+
+        int dx = 0;
+        int dy = 0;
+
+        synchronized (pressedKeys) {
+            if (pressedKeys.contains(KeyEvent.VK_W) || pressedKeys.contains(KeyEvent.VK_UP)) {
+                dy = -1;
+            } else if (pressedKeys.contains(KeyEvent.VK_S) || pressedKeys.contains(KeyEvent.VK_DOWN)) {
+                dy = 1;
+            }
+
+            if (pressedKeys.contains(KeyEvent.VK_A) || pressedKeys.contains(KeyEvent.VK_LEFT)) {
+                dx = -1;
+            } else if (pressedKeys.contains(KeyEvent.VK_D) || pressedKeys.contains(KeyEvent.VK_RIGHT)) {
+                dx = 1;
+            }
+        }
+
+        if (dx != 0 || dy != 0) {
+            lastMoveTime = now;
+            if (localX != -1 && localY != -1) {
+                int nextX = Math.max(0, Math.min(GameState.GRID_SIZE - 1, localX + dx));
+                int nextY = Math.max(0, Math.min(GameState.GRID_SIZE - 1, localY + dy));
+                localX = nextX;
+                localY = nextY;
+                repaint();
+            }
+            sendPacket(new NetworkPacket(NetworkPacket.Type.MOVE, myPlayerId, new int[] { dx, dy }));
+        }
     }
 
     private void triggerLocalBurst() {
