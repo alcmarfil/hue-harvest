@@ -13,6 +13,7 @@ public class Main {
     private static final String CARD_TITLE = "TITLE";
     private static final String CARD_MENU = "MENU";
     private static final String CARD_GAME = "GAME";
+    private static final String CARD_ABOUT = "ABOUT";
 
     // Menu Navigation State
     private static int currentMenuIndex = 0;
@@ -638,6 +639,134 @@ public class Main {
                 menuPanel.requestFocusInWindow();
             });
 
+            // ---------------------------------------------------------
+            // CARD 6: ABOUT THE GAME OVERLAYS SCREEN
+            // ---------------------------------------------------------
+            JPanel aboutPanel = new JPanel(null) {
+                private java.awt.image.BufferedImage bgImage = null;
+                private java.awt.image.BufferedImage about1 = null;
+                private java.awt.image.BufferedImage about2 = null;
+                private java.awt.image.BufferedImage about3 = null;
+                private java.awt.image.BufferedImage selectorBtn = null;
+                private java.awt.image.BufferedImage nextBtnImg = null;
+                private java.awt.image.BufferedImage backBtnImg = null;
+                private int pageIndex = 0; // 0 = Page 1, 1 = Page 2
+                private int selectedButtonIndex = 0; // 0 = NEXT/PREV, 1 = BACK
+
+                {
+                    bgImage = com.hueharvest.client.AssetManager.getImage("overall_bg.png");
+                    about1 = com.hueharvest.client.AssetManager.getImage("aboutTheGame.png");
+                    about2 = com.hueharvest.client.AssetManager.getImage("aboutTheGame (2).png");
+                    about3 = com.hueharvest.client.AssetManager.getImage("aboutTheGame (3).png");
+                    selectorBtn = com.hueharvest.client.AssetManager.getImage("selector2.png");
+                    nextBtnImg = com.hueharvest.client.AssetManager.getImage("abt_next_btn.png");
+                    backBtnImg = com.hueharvest.client.AssetManager.getImage("abt_back_btn.png");
+                    setDoubleBuffered(true);
+
+                    setFocusable(true);
+                    addKeyListener(new java.awt.event.KeyAdapter() {
+                        @Override
+                        public void keyPressed(java.awt.event.KeyEvent e) {
+                            int keyCode = e.getKeyCode();
+                            if (keyCode == java.awt.event.KeyEvent.VK_LEFT || keyCode == java.awt.event.KeyEvent.VK_A) {
+                                selectedButtonIndex = 0;
+                                repaint();
+                            } else if (keyCode == java.awt.event.KeyEvent.VK_RIGHT || keyCode == java.awt.event.KeyEvent.VK_D) {
+                                selectedButtonIndex = 1;
+                                repaint();
+                            } else if (keyCode == java.awt.event.KeyEvent.VK_ESCAPE) {
+                                java.awt.CardLayout cl = (java.awt.CardLayout) mainContainer.getLayout();
+                                cl.show(mainContainer, CARD_MENU);
+                                menuPanel.requestFocusInWindow();
+                            } else if (keyCode == java.awt.event.KeyEvent.VK_ENTER || keyCode == java.awt.event.KeyEvent.VK_SPACE) {
+                                if (selectedButtonIndex == 0) {
+                                    pageIndex = (pageIndex + 1) % 3;
+                                    repaint();
+                                } else {
+                                    java.awt.CardLayout cl = (java.awt.CardLayout) mainContainer.getLayout();
+                                    cl.show(mainContainer, CARD_MENU);
+                                    menuPanel.requestFocusInWindow();
+                                }
+                            }
+                        }
+                    });
+
+                    addComponentListener(new java.awt.event.ComponentAdapter() {
+                        @Override
+                        public void componentShown(java.awt.event.ComponentEvent e) {
+                            pageIndex = 0;
+                            selectedButtonIndex = 0;
+                            requestFocusInWindow();
+                        }
+                    });
+                }
+
+                @Override
+                protected void paintComponent(Graphics g) {
+                    super.paintComponent(g);
+                    Graphics2D g2d = (Graphics2D) g.create();
+                    g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                    g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+                    int panelWidth = getWidth();
+                    int panelHeight = getHeight();
+
+                    // Render background
+                    if (bgImage != null) {
+                        g2d.drawImage(bgImage, 0, 0, panelWidth, panelHeight, null);
+                    } else {
+                        g2d.setColor(Color.BLACK);
+                        g2d.fillRect(0, 0, panelWidth, panelHeight);
+                    }
+
+                    // Render modal page image
+                    java.awt.image.BufferedImage activeModal = (pageIndex == 0) ? about1 : (pageIndex == 1) ? about2  : about3;
+                    if (activeModal != null) {
+                        g2d.drawImage(activeModal, 0, 0, panelWidth, panelHeight, null);
+                    } else {
+                        // Fallback if image not loaded
+                        int modalW = 640;
+                        int modalH = 480;
+                        int modalX = (panelWidth - modalW) / 2;
+                        int modalY = (panelHeight - modalH) / 2 - 40;
+                        g2d.setColor(new Color(230, 215, 195));
+                        g2d.fillRoundRect(modalX, modalY, modalW, modalH, 20, 20);
+                    }
+
+                    // Render NEXT button image overlay
+                    if (nextBtnImg != null) {
+                        g2d.drawImage(nextBtnImg, 0, 0, panelWidth, panelHeight, null);
+                    }
+
+                    // Render BACK button image overlay
+                    if (backBtnImg != null) {
+                        g2d.drawImage(backBtnImg, 0, 0, panelWidth, panelHeight, null);
+                    }
+
+                    // Map 1000x750 design coordinates to scaled panelWidth x panelHeight for selector overlay
+                    double scaleX = (double) panelWidth / 1000.0;
+                    double scaleY = (double) panelHeight / 750.0;
+
+                    int leftBtnX = (int) (220 * scaleX);
+                    int rightBtnX = (int) (522 * scaleX);
+                    int btnY = (int) (600 * scaleY);
+                    int btnW = (int) (250 * scaleX);
+                    int btnH = (int) (75 * scaleY);
+
+                    // Draw selector overlay if selected
+                    int activeX = (selectedButtonIndex == 0) ? leftBtnX : rightBtnX;
+                    if (selectorBtn != null) {
+                        int selW = selectorBtn.getWidth();
+                        int selH = selectorBtn.getHeight();
+                        int selectorX = activeX + (btnW - selW) / 2;
+                        int selectorY = btnY + (btnH - selH) / 2;
+                        g2d.drawImage(selectorBtn, selectorX, selectorY, null);
+                    }
+
+                    g2d.dispose();
+                }
+            };
+
             gameContainer.add(gamePanel, BorderLayout.CENTER);
             gameContainer.add(sidePanel, BorderLayout.EAST);
 
@@ -647,6 +776,7 @@ public class Main {
             mainContainer.add(lobbyMenuPanel, "LobbyMenuCard"); 
             mainContainer.add(joinCodePanel, "JoinCodeCard");   
             mainContainer.add(gameContainer, CARD_GAME);
+            mainContainer.add(aboutPanel, CARD_ABOUT);
 
             frame.setLayout(new BorderLayout());
             frame.add(mainContainer, BorderLayout.CENTER);
@@ -797,12 +927,7 @@ public class Main {
                 break;
 
             case 2: // 3. About Option Selected
-                JOptionPane.showMessageDialog(frame, 
-                    "Hue Harvest Online\n" +
-                    "A farm-themed color conquest game\n\n" +
-                    "Developed as an academic development project for CMSC 137.\n" +
-                    "All rights reserved 2026.", 
-                    "About Hue Harvest", JOptionPane.INFORMATION_MESSAGE);
+                cl.show(container, CARD_ABOUT);
                 break;
         }
     }

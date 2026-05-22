@@ -5,7 +5,7 @@ import java.io.Serializable;
 public class GameState implements Serializable {
     public static final int GRID_SIZE = 20;
     public static final int GOAL_TILES = 200;
-    public static final int INITIAL_TIME = 100;
+    public static final int INITIAL_TIME = 60;
     
     public enum Status { LOBBY, PLAYING, FINISHED }
     private Status status = Status.LOBBY;
